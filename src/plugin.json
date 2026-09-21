@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "panel",
+  "name": "Flint",
+  "id": "ibumblebee-flint-panel",
+  "info": {
+    "keywords": ["panel", "flint", "echarts", "vega-lite", "plotly", "chart.js", "visualization"],
+    "description": "An AI-assisted visualization panel powered by Microsoft Flint. Describe a chart, review the generated live preview, and apply it across multiple rendering backends.",
+    "author": {
+      "name": "Ibumblebee"
+    },
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "links": [
+      {
+        "name": "Flint project",
+        "url": "https://github.com/microsoft/flint-chart"
+      },
+      {
+        "name": "Grafana MCP",
+        "url": "https://github.com/grafana/mcp-grafana"
+      }
+    ],
+    "screenshots": [
+      {
+        "name": "AI Chart Studio with live panel preview and AI Chat",
+        "path": "img/screenshots/ai-chart-studio.png"
+      },
+      {
+        "name": "Flint visualization gallery",
+        "path": "img/screenshots/flint-panel.png"
+      }
+    ],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=12.3.0",
+    "plugins": []
+  }
+}

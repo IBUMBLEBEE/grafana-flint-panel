@@ -1,0 +1,311 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-testdata-datasource",
+        "uid": "trlxrdZVk"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "chartType": "auto",
+        "xField": "",
+        "yField": "",
+        "colorField": "",
+        "specJson": ""
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "A",
+          "scenarioId": "raw_frame",
+          "rawFrameContent": "[\n  {\n    \"columns\": [\n      {\n        \"text\": \"Time\",\n        \"type\": \"time\"\n      },\n      {\n        \"text\": \"Label\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"Value\",\n        \"type\": \"number\"\n      }\n    ],\n    \"rows\": [\n      [1609459200000, \"A\", 10],\n      [1609462800000, \"B\", 20],\n      [1609466400000, \"C\", 15],\n      [1609470000000, \"D\", 25],\n      [1609473600000, \"E\", 30]\n    ]\n  }\n]"
+        }
+      ],
+      "title": "Flint Auto (Time + Label + Value)",
+      "type": "ibumblebee-flint-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-testdata-datasource",
+        "uid": "trlxrdZVk"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "chartType": "auto",
+        "xField": "",
+        "yField": "",
+        "colorField": "",
+        "specJson": ""
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "A",
+          "scenarioId": "no_data_points"
+        }
+      ],
+      "title": "Flint No Data",
+      "type": "ibumblebee-flint-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-testdata-datasource",
+        "uid": "trlxrdZVk"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "id": 3,
+      "options": {
+        "chartType": "Bar Chart",
+        "xField": "region",
+        "yField": "revenue",
+        "colorField": "",
+        "specJson": ""
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "A",
+          "scenarioId": "raw_frame",
+          "rawFrameContent": "[\n  {\n    \"columns\": [\n      {\n        \"text\": \"region\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"revenue\",\n        \"type\": \"number\"\n      }\n    ],\n    \"rows\": [\n      [\"North\", 120],\n      [\"South\", 90],\n      [\"East\", 150],\n      [\"West\", 80]\n    ]\n  }\n]"
+        }
+      ],
+      "title": "Flint Bar Chart",
+      "type": "ibumblebee-flint-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-testdata-datasource",
+        "uid": "trlxrdZVk"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "id": 4,
+      "options": {
+        "chartType": "auto",
+        "xField": "",
+        "yField": "",
+        "colorField": "",
+        "specJson": ""
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "A",
+          "scenarioId": "random_walk",
+          "seriesCount": 3
+        }
+      ],
+      "title": "Flint Time Series (random walk)",
+      "type": "ibumblebee-flint-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-testdata-datasource",
+        "uid": "trlxrdZVk"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 5,
+      "options": {
+        "chartType": "Bar Chart",
+        "xField": "region",
+        "yField": "revenue",
+        "colorField": "",
+        "specJson": ""
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "A",
+          "scenarioId": "raw_frame",
+          "rawFrameContent": "[\n  {\n    \"name\": \"north\",\n    \"columns\": [\n      { \"text\": \"region\", \"type\": \"string\" },\n      { \"text\": \"revenue\", \"type\": \"number\" }\n    ],\n    \"rows\": [[\"North\", 120], [\"East\", 150]]\n  },\n  {\n    \"name\": \"south\",\n    \"columns\": [\n      { \"text\": \"region\", \"type\": \"string\" },\n      { \"text\": \"revenue\", \"type\": \"number\" }\n    ],\n    \"rows\": [[\"South\", 90], [\"West\", 80]]\n  }\n]"
+        }
+      ],
+      "title": "Flint Multiple Table Frames",
+      "type": "ibumblebee-flint-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-testdata-datasource",
+        "uid": "trlxrdZVk"
+      },
+      "description": "Quarterly revenue, expenses, and profit rendered from one Grafana query as a Flint multi-series grouped bar chart.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 6,
+      "options": {
+        "renderBackend": "echarts",
+        "chartType": "Grouped Bar Chart",
+        "xField": "quarter",
+        "yField": "",
+        "colorField": "",
+        "specJson": ""
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "A",
+          "scenarioId": "raw_frame",
+          "rawFrameContent": "[\n  {\n    \"columns\": [\n      { \"text\": \"quarter\", \"type\": \"string\" },\n      { \"text\": \"revenue\", \"type\": \"number\" },\n      { \"text\": \"expenses\", \"type\": \"number\" },\n      { \"text\": \"profit\", \"type\": \"number\" }\n    ],\n    \"rows\": [\n      [\"Q1\", 1280, 820, 460],\n      [\"Q2\", 1510, 910, 600],\n      [\"Q3\", 1430, 875, 555],\n      [\"Q4\", 1760, 990, 770]\n    ]\n  }\n]"
+        }
+      ],
+      "title": "2026 Quarterly Performance — Flint Grouped Bar",
+      "type": "ibumblebee-flint-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-testdata-datasource",
+        "uid": "trlxrdZVk"
+      },
+      "description": "Monthly net-new-player gains and losses accumulated across 2025, rendered as a Flint Waterfall Chart with a selectable browser backend.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "id": 7,
+      "options": {
+        "renderBackend": "plotly",
+        "chartType": "Waterfall Chart",
+        "waterfallTotals": "auto",
+        "xField": "period",
+        "yField": "newUsers",
+        "colorField": "",
+        "specJson": "{\n  \"semantic_types\": {\n    \"period\": \"YearMonth\",\n    \"newUsers\": \"Profit\"\n  },\n  \"chart_spec\": {\n    \"chartType\": \"Waterfall Chart\",\n    \"encodings\": {\n      \"x\": \"period\",\n      \"y\": \"newUsers\"\n    },\n    \"title\": \"How the player base moved through 2025\",\n    \"subtitle\": \"Net new players each month, accumulating into the year's total\",\n    \"baseSize\": {\n      \"width\": 560,\n      \"height\": 440\n    }\n  }\n}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "A",
+          "scenarioId": "raw_frame",
+          "rawFrameContent": "[\n  {\n    \"columns\": [\n      { \"text\": \"period\", \"type\": \"string\" },\n      { \"text\": \"newUsers\", \"type\": \"number\" }\n    ],\n    \"rows\": [\n      [\"2025-01\", 397986],\n      [\"2025-02\", 533739],\n      [\"2025-03\", -521212],\n      [\"2025-04\", -149552],\n      [\"2025-05\", 40044],\n      [\"2025-06\", 633936],\n      [\"2025-07\", 442875],\n      [\"2025-08\", 138280],\n      [\"2025-09\", -502170],\n      [\"2025-10\", -167050],\n      [\"2025-11\", 293585],\n      [\"2025-12\", 494963]\n    ]\n  }\n]"
+        }
+      ],
+      "title": "Flint Waterfall Demo — 2025 Player Growth",
+      "type": "ibumblebee-flint-panel"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["flint"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Provisioned Flint dashboard",
+  "uid": "a538aeff-5a8a-42a5-901c-938d896fdd6f",
+  "version": 1,
+  "weekStart": ""
+}
