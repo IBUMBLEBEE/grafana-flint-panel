@@ -11,11 +11,7 @@ import {
   loadCurrentPanelContextSnapshot,
   subscribePanelQueryContext,
 } from '../ai/panelContext';
-import {
-  getLocalStorage,
-  loadAiProviderPreference,
-  saveAiProviderPreference,
-} from '../ai/providerPreference';
+import { getLocalStorage, loadAiProviderPreference, saveAiProviderPreference } from '../ai/providerPreference';
 import { aiProviderClient, listAiProviders } from '../ai/providerClient';
 import {
   clearTemporaryChat,

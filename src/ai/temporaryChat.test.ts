@@ -30,9 +30,9 @@ describe('temporary AI chat', () => {
     );
 
     expect(temporaryChatStorageKey(context)).toBe('flint-ai-chat:v2:demo:7');
-    expect(loadTemporaryChat(sessionStorage, temporaryChatStorageKey(context), context.schemaFingerprint).messages).toEqual(
-      []
-    );
+    expect(
+      loadTemporaryChat(sessionStorage, temporaryChatStorageKey(context), context.schemaFingerprint).messages
+    ).toEqual([]);
     expect(temporaryChatStorageKey({ ...context, dashboardUid: undefined })).toBeUndefined();
   });
 

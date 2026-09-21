@@ -1,8 +1,4 @@
-import {
-  AI_PROVIDER_PREFERENCE_KEY,
-  loadAiProviderPreference,
-  saveAiProviderPreference,
-} from './providerPreference';
+import { AI_PROVIDER_PREFERENCE_KEY, loadAiProviderPreference, saveAiProviderPreference } from './providerPreference';
 
 describe('AI provider preference', () => {
   beforeEach(() => localStorage.clear());

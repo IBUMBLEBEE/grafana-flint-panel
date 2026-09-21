@@ -31,10 +31,7 @@ export function loadAiProviderPreference(
   }
 }
 
-export function saveAiProviderPreference(
-  storage: StorageLike | undefined,
-  providerUid: string
-): void {
+export function saveAiProviderPreference(storage: StorageLike | undefined, providerUid: string): void {
   const normalized = providerUid.trim();
   if (!storage || !normalized) {
     return;
