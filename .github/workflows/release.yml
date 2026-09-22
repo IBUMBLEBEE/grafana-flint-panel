@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable SemVer tag to publish, for example v0.2.1
+        required: true
+        type: string
 
 permissions: read-all
 
@@ -13,45 +19,97 @@ concurrency:
 
 jobs:
   release:
-    name: Package and publish
+    name: Package and publish GitHub Release
     permissions:
       contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Verify release tag
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ ! "${GITHUB_REF_NAME}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+          if [[ ! "${RELEASE_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "Release tag must use stable SemVer, for example v0.1.0."
             exit 1
           fi
 
           package_version="$(node -p "require('./package.json').version")"
-          if [[ "${GITHUB_REF_NAME}" != "v${package_version}" ]]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${package_version}."
+          if [[ "${RELEASE_TAG}" != "v${package_version}" ]]; then
+            echo "Tag ${RELEASE_TAG} does not match package.json version ${package_version}."
             exit 1
           fi
 
-      - name: Build and package Grafana plugin
-        id: build-plugin
-        uses: grafana/plugin-actions/build-plugin@build-plugin/v1.2.0
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
-          policy_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Grafana plugin
+        run: npm run build
+
+      # Grafana Plugin Center signing and full validation are intentionally
+      # disabled until the ibumblebee organization is registered. Re-enable
+      # the action below when this repository is ready for Plugin Center review.
+      #
+      # - name: Build, sign, and validate for Grafana Plugin Center
+      #   uses: grafana/plugin-actions/build-plugin@build-plugin/v1.2.0
+      #   with:
+      #     node-version: '22'
+      #     policy_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+
+      - name: Package plugin for GitHub Release
+        id: package-plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          plugin_id="$(node -p "require('./dist/plugin.json').id")"
+          plugin_version="$(node -p "require('./dist/plugin.json').info.version")"
+          archive="${plugin_id}-${plugin_version}.zip"
+          checksum="${archive}.sha1"
+          staging_dir="${RUNNER_TEMP}/${plugin_id}"
+
+          cp -R dist "${staging_dir}"
+          (cd "${RUNNER_TEMP}" && zip -qr "${GITHUB_WORKSPACE}/${archive}" "${plugin_id}")
+          sha1sum "${archive}" | cut -f1 -d' ' > "${checksum}"
+
+          echo "archive=${archive}" >> "${GITHUB_OUTPUT}"
+          echo "checksum=${checksum}" >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare release notes
+        run: awk '/^## / { section++ } section == 1 { print }' CHANGELOG.md > release_notes.md
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ steps.package-plugin.outputs.archive }}
+          CHECKSUM: ${{ steps.package-plugin.outputs.checksum }}
         run: |
-          gh release edit "${GITHUB_REF_NAME}" \
-            --draft=false \
-            --latest \
-            --notes-file release_notes.md \
-            --title "${GITHUB_REF_NAME}"
+          set -euo pipefail
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${ARCHIVE}" "${CHECKSUM}" --clobber
+            gh release edit "${RELEASE_TAG}" \
+              --draft=false \
+              --latest \
+              --notes-file release_notes.md \
+              --title "${RELEASE_TAG}"
+          else
+            gh release create "${RELEASE_TAG}" "${ARCHIVE}" "${CHECKSUM}" \
+              --verify-tag \
+              --latest \
+              --notes-file release_notes.md \
+              --title "${RELEASE_TAG}"
+          fi
