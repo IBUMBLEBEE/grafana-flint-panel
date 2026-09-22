@@ -16,14 +16,17 @@ test('should display "No data" in case panel data is empty', async ({
 });
 
 test('should render a Flint chart when data is passed to the panel', async ({
-  panelEditPage,
-  readProvisionedDataSource,
+  gotoPanelEditPage,
+  readProvisionedDashboard,
   page,
 }) => {
-  const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
-  await panelEditPage.datasource.set(ds.name);
-  await panelEditPage.setVisualization('Flint');
-  await expect(page.getByTestId('flint-panel-chart')).toBeVisible();
+  const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
+  await gotoPanelEditPage({ dashboard, id: '1' });
+
+  const chart = page.getByTestId('flint-panel-chart');
+  await expect(chart).toBeVisible();
+  await expect(chart).toHaveAttribute('data-row-count', '5');
+  await expect(chart.locator('canvas')).toBeVisible();
 });
 
 test('renders all compatible table frames without a second data selector', async ({
