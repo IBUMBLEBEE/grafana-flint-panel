@@ -3,6 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+entry_image="$repo_root/src/img/screenshots/ai-chart-studio-entry.png"
 source_image="$repo_root/src/img/screenshots/ai-chart-studio.png"
 output_gif="$repo_root/src/img/screenshots/ai-chart-studio.gif"
 frames_dir="$(mktemp -d)"
@@ -16,6 +17,12 @@ render_frame() {
   local output="$1"
   shift
   magick "$source_image" -resize "${width}x${height}!" -style Normal "$@" "$output"
+}
+
+render_entry_frame() {
+  local output="$1"
+  shift
+  magick "$entry_image" -resize "${width}x${height}!" -style Normal "$@" "$output"
 }
 
 chat_clear=(
@@ -42,6 +49,24 @@ draw_cursor=(
   -fill '#f4f5f5' -stroke '#111217' -strokewidth 1.4
   -draw 'polygon 1159,617 1159,639 1165,633 1170,643 1175,640 1170,631 1178,631'
 )
+
+# Start in the Panel editor, guide the cursor to AI Assist, and click the
+# actual Open AI Chart Studio button before continuing with the existing flow.
+render_entry_frame "$frames_dir/entry-00.png"
+
+render_entry_frame "$frames_dir/entry-01.png" \
+  -fill none -stroke '#ff780a' -strokewidth 3 \
+  -draw 'roundrectangle 980,405 1193,437 6,6' \
+  -fill '#f4f5f5' -stroke '#111217' -strokewidth 1.4 \
+  -draw 'polygon 1018,470 1018,492 1024,486 1029,496 1034,493 1029,484 1037,484'
+
+render_entry_frame "$frames_dir/entry-02.png" \
+  -fill none -stroke '#ff780a' -strokewidth 3 \
+  -draw 'roundrectangle 980,405 1193,437 6,6' \
+  -fill '#ffb35755' -stroke '#ffb357' -strokewidth 3 \
+  -draw 'circle 1086,421 1104,421' \
+  -fill '#f4f5f5' -stroke '#111217' -strokewidth 1.4 \
+  -draw 'polygon 1080,423 1080,445 1086,439 1091,449 1096,446 1091,437 1099,437'
 
 # 0: establish the empty workspace.
 render_frame "$frames_dir/00.png"
@@ -177,6 +202,9 @@ render_frame "$frames_dir/10.png" \
 # GIF delays are in centiseconds. Longer holds make the story readable without
 # requiring a high frame rate or a large README asset.
 magick \
+  -delay 110 "$frames_dir/entry-00.png" \
+  -delay 55 "$frames_dir/entry-01.png" \
+  -delay 45 "$frames_dir/entry-02.png" \
   -delay 85 "$frames_dir/00.png" \
   -delay 16 "$frames_dir/01.png" \
   -delay 16 "$frames_dir/02.png" \
