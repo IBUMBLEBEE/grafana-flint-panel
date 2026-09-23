@@ -134,6 +134,7 @@ fi
 
 echo "Generating CHANGELOG.md for ${TAG}..."
 git cliff --tag "$TAG" --output CHANGELOG.md
+npx prettier --write CHANGELOG.md >/dev/null
 echo "Updated CHANGELOG.md."
 
 echo
