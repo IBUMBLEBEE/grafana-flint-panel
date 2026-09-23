@@ -1,6 +1,7 @@
 import { FieldType, toDataFrame } from '@grafana/data';
 
 import { applyGeneratedOptions, generateFlintOptionsFromAi } from './generateOptions';
+import type { GenerateChartRequest, RepairChartRequest } from './providerClient';
 
 describe('generateFlintOptionsFromAi', () => {
   const frame = toDataFrame({
@@ -37,6 +38,15 @@ describe('generateFlintOptionsFromAi', () => {
           { name: 'region', type: 'string' },
           { name: 'revenue', type: 'number' },
         ],
+        semanticTypes: expect.arrayContaining(['Category', 'Amount', 'DateTime']),
+        sampleRows: [{ region: 'North', revenue: 120 }],
+        chartCatalog: expect.arrayContaining([
+          expect.objectContaining({
+            chartType: 'Bar Chart',
+            requiredChannels: ['x', 'y'],
+            properties: expect.any(Array),
+          }),
+        ]),
       })
     );
   });
@@ -92,7 +102,8 @@ describe('generateFlintOptionsFromAi', () => {
         specJson: '',
       })
     );
-    expect(generated.rationale).toContain('Ignored an incompatible specJson');
+    expect(generated.rationale).toContain('Advanced Flint input was rejected');
+    expect(generated.fallbackReason).toMatch(/chart_spec requires chartType/);
   });
 
   it('preserves a valid Flint specJson from the model', async () => {
@@ -115,6 +126,145 @@ describe('generateFlintOptionsFromAi', () => {
     });
 
     expect(generated.specJson).toBe(specJson);
+  });
+
+  it('accepts a structured data-free chartInput after a real Flint compile', async () => {
+    const chartInput = {
+      semantic_types: { region: 'Category', revenue: 'Amount' },
+      chart_spec: {
+        chartType: 'Bar Chart',
+        title: 'Revenue differs by region',
+        encodings: { x: { field: 'region' }, y: { field: 'revenue' } },
+        chartProperties: { cornerRadius: 4 },
+      },
+    };
+    const generate = jest.fn(async () => ({
+      chartType: 'Bar Chart',
+      xField: 'region',
+      yField: 'revenue',
+      chartInput,
+      specJson: '{"legacy":true}',
+    }));
+
+    const generated = await generateFlintOptionsFromAi({
+      providerUid: 'provider-a',
+      frames: [frame],
+      userPrompt: 'rounded bars with a headline',
+      client: { generate },
+    });
+
+    expect(JSON.parse(generated.specJson)).toEqual(chartInput);
+    expect(generated.fallbackReason).toBeUndefined();
+  });
+
+  it.each(['echarts', 'vegalite', 'plotly', 'chartjs'] as const)(
+    'compiles accepted advanced input with the real %s runtime catalog',
+    async (renderBackend) => {
+      let providerRequest: GenerateChartRequest | undefined;
+      const generate = jest.fn(async (_providerUid: string, request: GenerateChartRequest) => {
+        providerRequest = request;
+        return {
+          chartType: 'Bar Chart',
+          xField: 'region',
+          yField: 'revenue',
+          chartInput: {
+            semantic_types: { region: 'Category', revenue: 'Amount' },
+            chart_spec: {
+              chartType: 'Bar Chart',
+              encodings: { x: { field: 'region' }, y: { field: 'revenue' } },
+            },
+          },
+        };
+      });
+
+      const generated = await generateFlintOptionsFromAi({
+        providerUid: 'provider-a',
+        frames: [frame],
+        userPrompt: 'advanced bar',
+        renderBackend,
+        client: { generate },
+      });
+
+      expect(generated.specJson).toContain('chart_spec');
+      expect(providerRequest?.chartCatalog.find((entry) => entry.chartType === 'Bar Chart')).toEqual(
+        expect.objectContaining({ requiredChannels: ['x', 'y'], properties: expect.any(Array) })
+      );
+    }
+  );
+
+  it('sends an exact compile error through one repair attempt and accepts the repaired input', async () => {
+    const generate = jest.fn(async () => ({
+      chartType: 'Bar Chart',
+      xField: 'region',
+      yField: 'revenue',
+      chartInput: {
+        chart_spec: {
+          chartType: 'Bar Chart',
+          encodings: { x: { field: 'region' }, y: { field: 'revenue' } },
+          chartProperties: { cornerRadius: 99 },
+        },
+      },
+    }));
+    let repairRequest: RepairChartRequest | undefined;
+    const repair = jest.fn(async (_providerUid: string, request: RepairChartRequest) => {
+      repairRequest = request;
+      return {
+        chartType: 'Bar Chart',
+        xField: 'region',
+        yField: 'revenue',
+        chartInput: {
+          chart_spec: {
+            chartType: 'Bar Chart',
+            encodings: { x: { field: 'region' }, y: { field: 'revenue' } },
+            chartProperties: { cornerRadius: 5 },
+          },
+        },
+      };
+    });
+
+    const generated = await generateFlintOptionsFromAi({
+      providerUid: 'provider-a',
+      frames: [frame],
+      userPrompt: 'rounded bars',
+      client: { generate, repair },
+    });
+
+    expect(repair).toHaveBeenCalledTimes(1);
+    expect(repairRequest).toEqual(
+      expect.objectContaining({
+        attempt: 1,
+        compileError: expect.stringMatching(/cornerRadius.*between 0 and 15/),
+      })
+    );
+    expect(JSON.parse(generated.specJson).chart_spec.chartProperties.cornerRadius).toBe(5);
+    expect(generated.repairAttempts).toBe(1);
+  });
+
+  it('surfaces the reason when repair fails and explicitly falls back to scalar fields', async () => {
+    const generate = jest.fn(async () => ({
+      chartType: 'Bar Chart',
+      xField: 'region',
+      yField: 'revenue',
+      chartInput: {
+        chart_spec: {
+          chartType: 'Bar Chart',
+          encodings: { x: { field: 'region' }, y: { field: 'revenue' } },
+          chartProperties: { cornerRadius: 99 },
+        },
+      },
+    }));
+    const repair = jest.fn(async () => Promise.reject(new Error('provider could not repair the candidate')));
+
+    const generated = await generateFlintOptionsFromAi({
+      providerUid: 'provider-a',
+      frames: [frame],
+      userPrompt: 'rounded bars',
+      client: { generate, repair },
+    });
+
+    expect(generated.specJson).toBe('');
+    expect(generated.fallbackReason).toMatch(/cornerRadius.*repair failed.*could not repair/);
+    expect(generated.rationale).toContain('Using the validated chart and field selections instead');
   });
 
   it('maps a donut proposal to Pie Chart and drops its unsupported spec override', async () => {

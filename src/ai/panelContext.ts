@@ -20,6 +20,11 @@ export interface FlintPanelContextSnapshot {
   panelId?: number;
   bindings: FlintFrameBinding[];
   schemaFingerprint: string;
+  queryFingerprints?: {
+    runtime?: string;
+    saved?: string;
+  };
+  /** Legacy snapshots are read only long enough to invalidate old drafts safely. */
   queryFingerprint?: string;
   queryFingerprintSource?: 'runtime' | 'saved';
 }
@@ -28,6 +33,7 @@ interface RegisteredPanelContext {
   dashboardUid?: string;
   panelId?: number;
   request?: DataQueryRequest;
+  savedTargets?: Array<Record<string, unknown>>;
   token: symbol;
   frames: DataFrame[];
 }
@@ -100,6 +106,15 @@ function withPersistedDatasources(request: DataQueryRequest, panelId: number, re
   };
 }
 
+function persistedTargets(panelId: number, response: unknown): Array<Record<string, unknown>> | undefined {
+  const dashboard = response as DashboardResponseSnapshot;
+  const panel = findDashboardPanel(dashboard.dashboard?.panels ?? [], panelId);
+  return panel?.targets?.map((target) => ({
+    ...target,
+    datasource: target.datasource ?? panel.datasource,
+  }));
+}
+
 function notifyPanelContext(eventBus: object, frames: DataFrame[]): void {
   const listeners = new Set(panelContextListeners.get(eventBus));
   frames.forEach((frame) => frameContextListeners.get(frame)?.forEach((listener) => listeners.add(listener)));
@@ -129,9 +144,7 @@ function stableValue(value: unknown): unknown {
   }
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .filter(
-        ([key]) => !['requestId', 'startTime', 'endTime', 'range', 'scopedVars', 'headers', 'datasource'].includes(key)
-      )
+      .filter(([key]) => !['requestId', 'startTime', 'endTime', 'range', 'scopedVars', 'headers'].includes(key))
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, child]) => [key, stableValue(child)])
   );
@@ -147,7 +160,8 @@ function frameFields(frame: DataFrame): Array<{ name: string; type: string }> {
 
 function schemaFingerprint(bindings: FlintFrameBinding[]): string {
   return fingerprint(
-    bindings.map(({ refId, frameIndex, fields }) => ({
+    bindings.map(({ datasource, refId, frameIndex, fields }) => ({
+      ...(datasource ? { datasource } : {}),
       ...(refId ? { refId } : {}),
       frameIndex,
       fields,
@@ -173,13 +187,14 @@ export function registerPanelQueryContext(
   frames.forEach((frame) => frameContexts.set(frame, registration));
   notifyPanelContext(eventBus, frames);
 
-  if (request?.dashboardUID && loadDashboard && request.targets.some((target) => !datasourceFromTarget(target))) {
+  if (request?.dashboardUID && loadDashboard) {
     void loadDashboard(request.dashboardUID)
       .then((response) => {
         if (panelContexts.get(eventBus)?.token !== registration.token) {
           return;
         }
         registration.request = withPersistedDatasources(request, panelId, response);
+        registration.savedTargets = persistedTargets(panelId, response);
         notifyPanelContext(eventBus, frames);
       })
       .catch(() => {
@@ -261,8 +276,10 @@ export function buildPanelContextSnapshot(
     panelId: registered?.panelId,
     bindings,
     schemaFingerprint: schemaFingerprint(bindings),
-    queryFingerprint: queryFingerprint(registered?.request),
-    ...(registered?.request ? { queryFingerprintSource: 'runtime' as const } : {}),
+    queryFingerprints: {
+      ...(registered?.request ? { runtime: queryFingerprint(registered.request) } : {}),
+      ...(registered?.savedTargets ? { saved: fingerprint(stableValue(registered.savedTargets)) } : {}),
+    },
   };
 }
 
@@ -306,9 +323,36 @@ export async function loadCurrentPanelContextSnapshot(
     panelId,
     bindings,
     schemaFingerprint: schemaFingerprint(bindings),
-    queryFingerprint: fingerprint(stableValue(targets)),
-    queryFingerprintSource: 'saved',
+    queryFingerprints: { saved: fingerprint(stableValue(targets)) },
   };
+}
+
+export function mergePanelContextSnapshots(
+  preferred: FlintPanelContextSnapshot | undefined,
+  additional: FlintPanelContextSnapshot | undefined
+): FlintPanelContextSnapshot | undefined {
+  if (!preferred) {
+    return additional;
+  }
+  if (!additional) {
+    return preferred;
+  }
+  return {
+    ...preferred,
+    queryFingerprints: {
+      ...additional.queryFingerprints,
+      ...preferred.queryFingerprints,
+    },
+  };
+}
+
+function fingerprints(context: FlintPanelContextSnapshot): { runtime?: string; saved?: string } {
+  if (context.queryFingerprints) {
+    return context.queryFingerprints;
+  }
+  return context.queryFingerprint && context.queryFingerprintSource
+    ? { [context.queryFingerprintSource]: context.queryFingerprint }
+    : {};
 }
 
 export function isSamePanelContext(
@@ -318,11 +362,17 @@ export function isSamePanelContext(
   if (!left || !right || left.schemaFingerprint !== right.schemaFingerprint) {
     return false;
   }
-  return (
-    !left.queryFingerprint ||
-    !right.queryFingerprint ||
-    left.queryFingerprintSource !== right.queryFingerprintSource ||
-    left.queryFingerprint === right.queryFingerprint
+  if (left.dashboardUid && right.dashboardUid && left.dashboardUid !== right.dashboardUid) {
+    return false;
+  }
+  if (left.panelId !== undefined && right.panelId !== undefined && left.panelId !== right.panelId) {
+    return false;
+  }
+  const leftFingerprints = fingerprints(left);
+  const rightFingerprints = fingerprints(right);
+  return (['runtime', 'saved'] as const).every(
+    (source) =>
+      !leftFingerprints[source] || !rightFingerprints[source] || leftFingerprints[source] === rightFingerprints[source]
   );
 }
 

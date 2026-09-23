@@ -5,6 +5,7 @@ import {
   describePanelContext,
   isSamePanelContext,
   loadCurrentPanelContextSnapshot,
+  mergePanelContextSnapshots,
   registerPanelQueryContext,
   subscribePanelQueryContext,
 } from './panelContext';
@@ -54,8 +55,7 @@ describe('Panel query context snapshots', () => {
           },
         ],
         schemaFingerprint: expect.stringMatching(/^fnv1a-/),
-        queryFingerprint: expect.stringMatching(/^fnv1a-/),
-        queryFingerprintSource: 'runtime',
+        queryFingerprints: { runtime: expect.stringMatching(/^fnv1a-/) },
       })
     );
     expect(describePanelContext(context, 1)).toContain('datasource=prometheus-prod (prometheus)');
@@ -68,7 +68,7 @@ describe('Panel query context snapshots', () => {
     expect(describePanelContext(context, 1)).toContain('managed by Grafana Panel');
   });
 
-  it('does not change visualization evidence when datasource provenance is hydrated', () => {
+  it('changes immutable evidence when datasource provenance is hydrated', () => {
     const frame = toDataFrame({ refId: 'A', fields: [{ name: 'value', type: FieldType.number, values: [1] }] });
     const withoutDatasource = buildPanelContextSnapshot([frame]);
     const eventBus = {} as EventBus;
@@ -76,7 +76,7 @@ describe('Panel query context snapshots', () => {
     const withDatasource = buildPanelContextSnapshot([frame], eventBus);
 
     expect(withDatasource?.bindings[0].datasource).toBeDefined();
-    expect(withDatasource?.schemaFingerprint).toBe(withoutDatasource?.schemaFingerprint);
+    expect(withDatasource?.schemaFingerprint).not.toBe(withoutDatasource?.schemaFingerprint);
   });
 
   it('detects a query change while ignoring request timing metadata', () => {
@@ -116,6 +116,34 @@ describe('Panel query context snapshots', () => {
     ).toBe(false);
   });
 
+  it('treats the datasource UID as part of immutable field provenance', () => {
+    const frame = toDataFrame({ refId: 'A', fields: [{ name: 'value', type: FieldType.number, values: [1] }] });
+    const firstBus = {} as EventBus;
+    const secondBus = {} as EventBus;
+    const first = request();
+    const second = request();
+    second.targets[0] = { ...second.targets[0], datasource: { uid: 'prometheus-staging', type: 'prometheus' } };
+    registerPanelQueryContext(firstBus, 12, first);
+    registerPanelQueryContext(secondBus, 12, second);
+
+    expect(
+      isSamePanelContext(buildPanelContextSnapshot([frame], firstBus), buildPanelContextSnapshot([frame], secondBus))
+    ).toBe(false);
+  });
+
+  it('retains both saved and runtime query evidence when snapshots are merged', () => {
+    const frame = toDataFrame({ refId: 'A', fields: [{ name: 'value', type: FieldType.number, values: [1] }] });
+    const eventBus = {} as EventBus;
+    registerPanelQueryContext(eventBus, 12, request());
+    const runtime = buildPanelContextSnapshot([frame], eventBus)!;
+    const saved = { ...runtime, queryFingerprints: { saved: 'saved-query' } };
+
+    expect(mergePanelContextSnapshots(saved, runtime)?.queryFingerprints).toEqual({
+      runtime: expect.stringMatching(/^fnv1a-/),
+      saved: 'saved-query',
+    });
+  });
+
   it('hydrates a non-mixed query datasource from the persisted Grafana panel', async () => {
     const eventBus = {} as EventBus;
     const input = request();
@@ -126,7 +154,7 @@ describe('Panel query context snapshots', () => {
     });
     const changed = new Promise<void>((resolve) => {
       const unsubscribe = subscribePanelQueryContext(eventBus, () => {
-        if (buildPanelContextSnapshot([frame], eventBus)?.bindings.length) {
+        if (buildPanelContextSnapshot([frame], eventBus)?.bindings[0]?.datasource) {
           unsubscribe();
           resolve();
         }

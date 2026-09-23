@@ -10,7 +10,8 @@ const request = {
   prompt: 'bar',
   fields: [{ name: 'value', type: 'number' }],
   renderBackend: 'echarts' as const,
-  chartCatalog: [{ chartType: 'Bar Chart', channels: ['x', 'y'] }],
+  chartCatalog: [{ chartType: 'Bar Chart', channels: ['x', 'y'], requiredChannels: ['x', 'y'], properties: [] }],
+  semanticTypes: ['Category', 'Quantity'],
   frameSummary: [{ frameIndex: 0, refId: 'A', fields: ['value'] }],
 };
 
@@ -45,6 +46,25 @@ describe('Flint AI provider adapter', () => {
     await expect(client.generate('provider-a', request)).resolves.toEqual({ chartType: 'Bar Chart' });
     expect(generateA).toHaveBeenCalledWith(request);
     expect(generateB).not.toHaveBeenCalled();
+  });
+
+  it('calls the selected provider repair helper with bounded compiler evidence', async () => {
+    const repair = jest.fn(async () => ({ chartType: 'Bar Chart' }));
+    const service = {
+      getList: jest.fn(),
+      getInstanceSettings: jest.fn((uid: string) => settings(uid, uid)),
+      get: jest.fn(async () => ({ repair })),
+    };
+    const client = new GrafanaAiProviderClient(service);
+    const input = {
+      request,
+      candidate: { chartType: 'Bar Chart', chartInput: { chart_spec: {} } },
+      compileError: 'missing y encoding',
+      attempt: 1,
+    };
+
+    await expect(client.repair('provider-a', input)).resolves.toEqual({ chartType: 'Bar Chart' });
+    expect(repair).toHaveBeenCalledWith(input);
   });
 
   it('calls the selected provider chat helper without exposing datasource configuration', async () => {

@@ -47,6 +47,25 @@ describe('validatePendingViz', () => {
     ).toThrow(/must not contain data/);
   });
 
+  it('allows a real query field named data without treating its semantic annotation as embedded rows', () => {
+    expect(() =>
+      validatePendingViz(
+        {
+          ...valid,
+          xField: 'data',
+          specJson: JSON.stringify({
+            semantic_types: { data: 'Category', revenue: 'Amount' },
+            chart_spec: {
+              chartType: 'Bar Chart',
+              encodings: { x: { field: 'data' }, y: { field: 'revenue' } },
+            },
+          }),
+        },
+        ['data', 'revenue']
+      )
+    ).not.toThrow();
+  });
+
   it('rejects spec encodings that reference missing query fields', () => {
     expect(() =>
       validatePendingViz(
@@ -60,6 +79,37 @@ describe('validatePendingViz', () => {
         ['region', 'revenue']
       )
     ).toThrow(/unknown query field "country"/);
+  });
+
+  it('rejects unknown fields inside static-series encoding arrays', () => {
+    expect(() =>
+      validatePendingViz(
+        {
+          ...valid,
+          specJson: JSON.stringify({
+            chartType: 'Line Chart',
+            encodings: { x: { field: 'region' }, y: ['revenue', 'profit'] },
+          }),
+        },
+        ['region', 'revenue']
+      )
+    ).toThrow(/unknown query field "profit"/);
+  });
+
+  it('validates chartProperties against the selected backend runtime catalog', () => {
+    expect(() =>
+      validatePendingViz(
+        {
+          ...valid,
+          specJson: JSON.stringify({
+            chartType: 'Bar Chart',
+            encodings: { x: { field: 'region' }, y: { field: 'revenue' } },
+            chartProperties: { cornerRadius: 99 },
+          }),
+        },
+        ['region', 'revenue']
+      )
+    ).toThrow(/cornerRadius.*between 0 and 15/);
   });
 
   it('rejects encoding channels that the selected Flint backend chart does not support', () => {
@@ -95,7 +145,7 @@ describe('validatePendingViz', () => {
         },
         ['region', 'revenue']
       )
-    ).toThrow(/requires color and size/);
+    ).toThrow(/requires size encodings/);
   });
 
   it('rejects persisted Framework overrides that target runtime query data', () => {

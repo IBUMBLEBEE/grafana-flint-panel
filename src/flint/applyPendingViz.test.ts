@@ -52,4 +52,34 @@ describe('applyPendingViz', () => {
     expect(result.frameworkOverrides?.echarts).toBeUndefined();
     expect(JSON.stringify(result.frameworkOverrides)).toBe('{}');
   });
+
+  it('does not persist proposal query provenance after Apply', () => {
+    const result = applyPendingViz(defaultFlintOptions, {
+      renderBackend: 'echarts',
+      chartType: 'Bar Chart',
+      xField: 'region',
+      yField: 'revenue',
+      colorField: '',
+      specJson: '',
+      context: {
+        dashboardUid: 'private-dashboard',
+        panelId: 12,
+        bindings: [
+          {
+            datasource: { uid: 'private-datasource', type: 'prometheus' },
+            refId: 'A',
+            frameIndex: 0,
+            fields: [{ name: 'revenue', type: 'number' }],
+          },
+        ],
+        schemaFingerprint: 'schema-a',
+        queryFingerprints: { saved: 'query-a' },
+      },
+    });
+
+    expect(result.ai.pending).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain('private-dashboard');
+    expect(JSON.stringify(result)).not.toContain('private-datasource');
+    expect(JSON.stringify(result)).not.toContain('query-a');
+  });
 });

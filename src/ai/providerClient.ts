@@ -4,7 +4,7 @@ import { getDataSourceSrv } from '@grafana/runtime';
 import type { FlintChartCatalogEntry } from '../flint/chartTypes';
 import type { RenderBackend } from '../flint/backends';
 
-export const FLINT_AI_DATASOURCE_PLUGIN_ID = 'ibumblebee-flint-ai-datasource';
+export const FLINT_AI_DATASOURCE_PLUGIN_ID = 'ibumblebee-flintai-datasource';
 
 export interface GenerateChartRequest {
   prompt: string;
@@ -13,7 +13,13 @@ export interface GenerateChartRequest {
   suggestedChartType?: string;
   renderBackend: RenderBackend;
   chartCatalog: FlintChartCatalogEntry[];
-  frameSummary?: Array<{ frameIndex: number; refId?: string; fields: string[] }>;
+  semanticTypes: string[];
+  sampleRows?: Array<Record<string, unknown>>;
+  frameSummary?: Array<{
+    frameIndex: number;
+    refId?: string;
+    fields: string[];
+  }>;
   conversation?: ChatMessage[];
 }
 
@@ -22,8 +28,18 @@ export interface GenerateChartResponse {
   xField?: string;
   yField?: string;
   colorField?: string;
+  /** Preferred, data-free structured Flint authoring contract. */
+  chartInput?: unknown;
+  /** Legacy compatibility for older provider instances. */
   specJson?: string;
   rationale?: string;
+}
+
+export interface RepairChartRequest {
+  request: GenerateChartRequest;
+  candidate: GenerateChartResponse;
+  compileError: string;
+  attempt: number;
 }
 
 export interface ChatMessage {
@@ -46,11 +62,13 @@ export interface ChatResponse {
 
 export interface AiProviderClient {
   generate(providerUid: string, input: GenerateChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
+  repair(providerUid: string, input: RepairChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
   chat(providerUid: string, input: ChatRequest, signal?: AbortSignal): Promise<ChatResponse>;
 }
 
 interface ProviderDataSource {
   generate(input: GenerateChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
+  repair(input: RepairChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
   chat(input: ChatRequest, signal?: AbortSignal): Promise<ChatResponse>;
 }
 
@@ -118,6 +136,10 @@ export class GrafanaAiProviderClient implements AiProviderClient {
     return this.callProvider(providerUid, 'chat', input, signal);
   }
 
+  async repair(providerUid: string, input: RepairChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse> {
+    return this.callProvider(providerUid, 'repair', input, signal);
+  }
+
   private async callProvider(
     providerUid: string,
     method: 'generate',
@@ -132,8 +154,14 @@ export class GrafanaAiProviderClient implements AiProviderClient {
   ): Promise<ChatResponse>;
   private async callProvider(
     providerUid: string,
-    method: 'generate' | 'chat',
-    input: GenerateChartRequest | ChatRequest,
+    method: 'repair',
+    input: RepairChartRequest,
+    signal?: AbortSignal
+  ): Promise<GenerateChartResponse>;
+  private async callProvider(
+    providerUid: string,
+    method: 'generate' | 'repair' | 'chat',
+    input: GenerateChartRequest | RepairChartRequest | ChatRequest,
     signal?: AbortSignal
   ): Promise<GenerateChartResponse | ChatResponse> {
     const uid = providerUid.trim();
@@ -155,7 +183,7 @@ export class GrafanaAiProviderClient implements AiProviderClient {
         throw new Error(`selected data source does not expose the Flint ${method} resource`);
       }
       const call = resource as (
-        input: GenerateChartRequest | ChatRequest,
+        input: GenerateChartRequest | RepairChartRequest | ChatRequest,
         signal?: AbortSignal
       ) => Promise<GenerateChartResponse | ChatResponse>;
       return signal ? await call.call(dataSource, input, signal) : await call.call(dataSource, input);

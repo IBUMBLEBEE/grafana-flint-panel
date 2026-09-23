@@ -9,6 +9,7 @@ import {
   buildPanelContextSnapshot,
   isSamePanelContext,
   loadCurrentPanelContextSnapshot,
+  mergePanelContextSnapshots,
   subscribePanelQueryContext,
 } from '../ai/panelContext';
 import { getLocalStorage, loadAiProviderPreference, saveAiProviderPreference } from '../ai/providerPreference';
@@ -331,11 +332,10 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
     };
   }, [frames]);
 
-  const runtimePanelContext = useMemo(
-    () => buildPanelContextSnapshot(frames, context.eventBus),
-    [context.eventBus, frames]
-  );
-  const panelContext = savedPanelContext ?? runtimePanelContext;
+  // Rebuild on every render so async provenance notifications cannot be hidden
+  // behind stable eventBus/frame references.
+  const runtimePanelContext = buildPanelContextSnapshot(frames, context.eventBus);
+  const panelContext = mergePanelContextSnapshots(savedPanelContext, runtimePanelContext);
   const storage = getSessionStorage();
   const storageKey = temporaryChatStorageKey(panelContext);
   const selectedProviderUid = preferredProviderUid ?? ai.providerUid;
@@ -483,6 +483,14 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
       }
       return;
     }
+    if (
+      !panelContext ||
+      panelContext.bindings.length !== frames.length ||
+      panelContext.bindings.some((item) => !item.datasource)
+    ) {
+      setError('Wait for Grafana to resolve every Panel query datasource before generating a chart.');
+      return;
+    }
     generatedPromptRef.current = prompt;
     setBusy('generate');
     setError(undefined);
@@ -511,9 +519,21 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
       });
       appendMessage(
         'assistant',
-        `Prepared a ${generated.chartType} proposal. Review the live preview, then Apply or Discard it.`,
+        [
+          `Prepared a ${generated.chartType} proposal.`,
+          generated.fallbackReason,
+          generated.repairAttempts && !generated.fallbackReason
+            ? `The advanced Flint input compiled after ${generated.repairAttempts} repair attempt.`
+            : undefined,
+          'Review the live preview, then Apply or Discard it.',
+        ]
+          .filter(Boolean)
+          .join(' '),
         messages
       );
+      if (generated.fallbackReason) {
+        setNotice(generated.fallbackReason);
+      }
     } catch (cause) {
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : String(cause));

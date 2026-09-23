@@ -16,7 +16,6 @@ export function applyPendingViz(options: FlintOptions, pending: FlintPendingViz)
     ai: {
       ...ai,
       pending: undefined,
-      lastAppliedContext: pending.context ?? ai.lastAppliedContext,
     },
   };
 }

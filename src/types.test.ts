@@ -33,4 +33,18 @@ describe('secure AI configuration migration', () => {
     };
     expect(sanitizeAiConfig({ lastPrompt: '', draft } as never).draft).not.toHaveProperty('dataScope');
   });
+
+  it('drops previously persisted Panel execution evidence after Apply', () => {
+    const legacy = {
+      lastPrompt: '',
+      lastAppliedContext: {
+        dashboardUid: 'ops',
+        panelId: 12,
+        bindings: [],
+        schemaFingerprint: 'old-evidence',
+      },
+    };
+    expect(hasLegacyAiConfig(legacy)).toBe(true);
+    expect(sanitizeAiConfig(legacy as never)).toEqual({ lastPrompt: '' });
+  });
 });

@@ -1,6 +1,6 @@
 import { FieldType, toDataFrame } from '@grafana/data';
 
-import { buildDataHint, MAX_DATA_HINT_BYTES } from './dataHint';
+import { buildDataHint, MAX_DATA_HINT_BYTES, MAX_SAMPLE_ROWS_BYTES } from './dataHint';
 
 describe('buildDataHint', () => {
   it('summarizes category + measure fields and suggests Bar Chart', () => {
@@ -45,7 +45,10 @@ describe('buildDataHint', () => {
     const hint = buildDataHint([frame]);
     expect(hint.summary).toContain('<redacted>');
     expect(hint.summary).not.toContain('must-not-leak');
+    expect(JSON.stringify(hint.sampleRows)).toContain('<redacted>');
+    expect(JSON.stringify(hint.sampleRows)).not.toContain('must-not-leak');
     expect(new TextEncoder().encode(hint.summary).length).toBeLessThanOrEqual(MAX_DATA_HINT_BYTES);
+    expect(new TextEncoder().encode(JSON.stringify(hint.sampleRows)).length).toBeLessThanOrEqual(MAX_SAMPLE_ROWS_BYTES);
   });
 
   it('describes an empty query without exposing internal context', () => {

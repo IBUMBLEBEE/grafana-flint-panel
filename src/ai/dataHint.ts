@@ -8,6 +8,8 @@ import type { RenderBackend } from '../flint/backends';
 const MAX_SAMPLE_ROWS = 12;
 const MAX_FIELD_VALUES = 8;
 const MAX_SAMPLE_VALUE_BYTES = 96;
+const MAX_SAMPLE_ROW_FIELDS = 24;
+export const MAX_SAMPLE_ROWS_BYTES = 4 * 1024;
 export const MAX_DATA_HINT_BYTES = 4 * 1024;
 const SENSITIVE_FIELD = /(api.?key|authorization|cookie|credential|pass(word|wd)?|secret|token)/i;
 
@@ -44,6 +46,29 @@ function safeSampleValue(fieldName: string, value: unknown): string {
     return '<redacted>';
   }
   return truncateUtf8(String(value), MAX_SAMPLE_VALUE_BYTES);
+}
+
+function safeRowValue(fieldName: string, value: unknown): unknown {
+  if (SENSITIVE_FIELD.test(fieldName)) {
+    return '<redacted>';
+  }
+  if (value === null || value === undefined || typeof value === 'number' || typeof value === 'boolean') {
+    return value ?? null;
+  }
+  return truncateUtf8(String(value), MAX_SAMPLE_VALUE_BYTES);
+}
+
+function boundedSampleRows(rows: Array<Record<string, unknown>>, fieldNames: string[]): Array<Record<string, unknown>> {
+  const selectedFields = fieldNames.slice(0, MAX_SAMPLE_ROW_FIELDS);
+  const samples = rows
+    .slice(0, MAX_SAMPLE_ROWS)
+    .map((row) =>
+      Object.fromEntries(selectedFields.map((fieldName) => [fieldName, safeRowValue(fieldName, row[fieldName])]))
+    );
+  while (samples.length && new TextEncoder().encode(JSON.stringify(samples)).length > MAX_SAMPLE_ROWS_BYTES) {
+    samples.pop();
+  }
+  return samples;
 }
 
 /**
@@ -94,7 +119,7 @@ export function buildDataHint(frames: DataFrame[]): DataHint {
     summary,
     fieldNames,
     suggestedChartType,
-    sampleRows: table.values.slice(0, MAX_SAMPLE_ROWS),
+    sampleRows: boundedSampleRows(table.values, fieldNames),
   };
 }
 

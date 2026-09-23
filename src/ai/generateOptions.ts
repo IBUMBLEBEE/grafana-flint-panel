@@ -1,10 +1,11 @@
 import { DataFrame } from '@grafana/data';
 
 import { preparePanelData } from '../flint/preparePanelData';
+import { assemblePanelChart } from '../flint/assemble';
 import { validatePendingViz } from '../flint/validateOptions';
-import { FlintOptions } from '../types';
+import { defaultFlintOptions, FlintOptions } from '../types';
 import { allowedChartTypes, buildDataHint } from './dataHint';
-import { chartCatalogForBackend } from '../flint/chartTypes';
+import { chartCatalogForBackend, FLINT_SEMANTIC_TYPES } from '../flint/chartTypes';
 import type { RenderBackend } from '../flint/backends';
 import { aiProviderClient, AiProviderClient, ChatMessage, GenerateChartResponse } from './providerClient';
 
@@ -15,7 +16,12 @@ export interface GeneratedFlintOptions {
   colorField: string;
   specJson: string;
   rationale: string;
+  /** Present when an advanced candidate was explicitly rejected and a scalar proposal was used. */
+  fallbackReason?: string;
+  repairAttempts?: number;
 }
+
+const COMPILE_SIZE = { width: 640, height: 360 };
 
 const CHART_TYPE_ALIASES: Record<string, string> = {
   auto: 'auto',
@@ -56,6 +62,30 @@ function normalizeChartType(raw: string, backend: RenderBackend): string {
   throw new Error(`Unsupported chartType from model: ${raw}`);
 }
 
+function withoutNulls(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(withoutNulls).filter((item) => item !== undefined);
+  }
+  if (!value || typeof value !== 'object') {
+    return value === null ? undefined : value;
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([key, child]) => [key, withoutNulls(child)] as const)
+      .filter(([, child]) => child !== undefined)
+  );
+}
+
+function structuredSpecJson(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('AI provider response chartInput must be a structured Flint object');
+  }
+  return JSON.stringify(withoutNulls(value));
+}
+
 function normalizeGenerated(value: GenerateChartResponse, backend: RenderBackend): GeneratedFlintOptions {
   if (!value || typeof value !== 'object' || typeof value.chartType !== 'string') {
     throw new Error('AI provider response must be a Flint proposal object');
@@ -70,37 +100,68 @@ function normalizeGenerated(value: GenerateChartResponse, backend: RenderBackend
     xField: value.xField ?? '',
     yField: value.yField ?? '',
     colorField: value.colorField ?? '',
-    specJson: value.specJson ?? '',
+    specJson: structuredSpecJson(value.chartInput) ?? value.specJson ?? '',
     rationale: value.rationale ?? '',
   };
 }
 
-function validateGeneratedWithSpecFallback(
+function scalarFallback(generated: GeneratedFlintOptions): GeneratedFlintOptions {
+  return { ...generated, specJson: '', fallbackReason: undefined, repairAttempts: undefined };
+}
+
+function validateAndCompileGenerated(
   generated: GeneratedFlintOptions,
-  fieldNames: Iterable<string>,
+  frames: DataFrame[],
   backend: RenderBackend
+): void {
+  const prepared = preparePanelData(frames);
+  validatePendingViz(
+    generated,
+    prepared.table.fields.map((field) => field.name),
+    backend
+  );
+  if (generated.specJson.trim()) {
+    const document = JSON.parse(generated.specJson) as Record<string, unknown>;
+    const chartSpec = (document.chart_spec ?? document) as Record<string, unknown>;
+    if (chartSpec.chartType !== generated.chartType) {
+      throw new Error(
+        `Advanced Flint chartType "${String(chartSpec.chartType)}" must match proposal chartType "${generated.chartType}"`
+      );
+    }
+  }
+  assemblePanelChart(
+    prepared.table,
+    {
+      ...defaultFlintOptions,
+      renderBackend: backend,
+      chartType: generated.chartType,
+      xField: generated.xField,
+      yField: generated.yField,
+      colorField: generated.colorField,
+      specJson: generated.specJson,
+    },
+    COMPILE_SIZE
+  );
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+function explicitFallback(
+  fallback: GeneratedFlintOptions,
+  reason: string,
+  repairAttempts: number
 ): GeneratedFlintOptions {
-  const names = [...fieldNames];
-  const fallback = { ...generated, specJson: '' };
-
-  // The scalar proposal is sufficient to render a chart. Validate it first so
-  // an optional, provider-invented spec cannot hide invalid field selections.
-  validatePendingViz(fallback, names, backend);
-  if (!generated.specJson.trim()) {
-    return fallback;
-  }
-
-  try {
-    validatePendingViz(generated, names, backend);
-    return generated;
-  } catch {
-    return {
-      ...fallback,
-      rationale: [generated.rationale, 'Ignored an incompatible specJson and used the chart and field selections.']
-        .filter(Boolean)
-        .join(' '),
-    };
-  }
+  const fallbackReason = `Advanced Flint input was rejected${repairAttempts ? ' after repair' : ''}: ${reason}`;
+  return {
+    ...fallback,
+    fallbackReason,
+    repairAttempts,
+    rationale: [fallback.rationale, fallbackReason, 'Using the validated chart and field selections instead.']
+      .filter(Boolean)
+      .join(' '),
+  };
 }
 
 export async function generateFlintOptionsFromAi(args: {
@@ -110,7 +171,7 @@ export async function generateFlintOptionsFromAi(args: {
   renderBackend?: RenderBackend;
   conversation?: ChatMessage[];
   signal?: AbortSignal;
-  client?: Pick<AiProviderClient, 'generate'>;
+  client?: Pick<AiProviderClient, 'generate'> & Partial<Pick<AiProviderClient, 'repair'>>;
 }): Promise<GeneratedFlintOptions> {
   const { providerUid, frames, userPrompt } = args;
   if (!frames.length) {
@@ -127,6 +188,8 @@ export async function generateFlintOptionsFromAi(args: {
     suggestedChartType: hint.suggestedChartType,
     renderBackend,
     chartCatalog: chartCatalogForBackend(renderBackend),
+    semanticTypes: [...FLINT_SEMANTIC_TYPES],
+    sampleRows: hint.sampleRows,
     frameSummary: prepared.frames.map((frame) => ({
       frameIndex: frame.frameIndex,
       ...(frame.refId ? { refId: frame.refId } : {}),
@@ -139,7 +202,43 @@ export async function generateFlintOptionsFromAi(args: {
     ? await client.generate(providerUid, request, args.signal)
     : await client.generate(providerUid, request);
   const generated = normalizeGenerated(payload, renderBackend);
-  return validateGeneratedWithSpecFallback(generated, hint.fieldNames, renderBackend);
+  let fallback: GeneratedFlintOptions | undefined;
+  let fallbackIsValid = false;
+  try {
+    fallback = scalarFallback(generated);
+    validateAndCompileGenerated(fallback, frames, renderBackend);
+    fallbackIsValid = true;
+    validateAndCompileGenerated(generated, frames, renderBackend);
+    return generated;
+  } catch (firstCause) {
+    const firstError = errorMessage(firstCause);
+    if (!client.repair) {
+      if (fallback && fallbackIsValid) {
+        return explicitFallback(fallback, firstError, 0);
+      }
+      throw firstCause;
+    }
+
+    try {
+      const repairedPayload = args.signal
+        ? await client.repair(
+            providerUid,
+            { request, candidate: payload, compileError: firstError, attempt: 1 },
+            args.signal
+          )
+        : await client.repair(providerUid, { request, candidate: payload, compileError: firstError, attempt: 1 });
+      const repaired = normalizeGenerated(repairedPayload, renderBackend);
+      validateAndCompileGenerated(repaired, frames, renderBackend);
+      return { ...repaired, repairAttempts: 1 };
+    } catch (repairCause) {
+      const repairError = errorMessage(repairCause);
+      const repairedReason = `${firstError}; repair failed: ${repairError}`;
+      if (fallback && fallbackIsValid) {
+        return explicitFallback(fallback, repairedReason, 1);
+      }
+      throw new Error(`Flint proposal failed validation and repair: ${repairedReason}`);
+    }
+  }
 }
 
 export function applyGeneratedOptions(options: FlintOptions, generated: GeneratedFlintOptions): FlintOptions {

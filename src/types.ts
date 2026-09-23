@@ -60,8 +60,6 @@ export interface FlintAiConfig {
    * The panel applies this via onOptionsChange then clears it.
    */
   pending?: FlintPendingViz;
-  /** Evidence retained after Apply so later query/schema changes are detectable. */
-  lastAppliedContext?: FlintPanelContextSnapshot;
 }
 
 export interface FlintOptions {
@@ -90,7 +88,7 @@ export const defaultAiConfig: FlintAiConfig = {
   lastPrompt: '',
 };
 
-const AI_CONFIG_KEYS = new Set(['providerUid', 'lastPrompt', 'draft', 'pending', 'lastAppliedContext']);
+const AI_CONFIG_KEYS = new Set(['providerUid', 'lastPrompt', 'draft', 'pending']);
 
 function withoutLegacyDataScope(pending?: FlintPendingViz): FlintPendingViz | undefined {
   if (!pending) {
@@ -107,7 +105,6 @@ export function sanitizeAiConfig(value?: FlintAiConfig): FlintAiConfig {
     ...(value?.providerUid?.trim() ? { providerUid: value.providerUid.trim() } : {}),
     ...(value?.draft ? { draft: withoutLegacyDataScope(value.draft) } : {}),
     ...(value?.pending ? { pending: withoutLegacyDataScope(value.pending) } : {}),
-    ...(value?.lastAppliedContext ? { lastAppliedContext: value.lastAppliedContext } : {}),
   };
 }
 
