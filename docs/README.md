@@ -9,6 +9,7 @@ the source of truth for code-level behavior.
 | Document                                                        | Purpose                                                            |
 | --------------------------------------------------------------- | ------------------------------------------------------------------ |
 | [Project README](../README.md)                                  | User-facing setup, workflow, and feature overview                  |
+| [Project status](project-status.md)                             | Maturity label, intended use, limitations, and promotion criteria  |
 | [Domain context](../CONTEXT.md)                                 | Shared terminology for conversations, proposals, and Panel context |
 | [Product roadmap](product-roadmap.md)                           | Current product shape and future direction                         |
 | [Agent guide](agent-flint-grafana.md)                           | Flint options contract and Grafana MCP write workflow              |

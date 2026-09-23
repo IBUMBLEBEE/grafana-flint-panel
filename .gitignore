@@ -56,3 +56,4 @@ ci/
 /docs/*
 !/docs/README.md
 !/docs/product-roadmap.md
+!/docs/project-status.md

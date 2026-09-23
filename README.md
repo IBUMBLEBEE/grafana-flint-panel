@@ -4,6 +4,9 @@
 
 Flint is an AI-assisted visualization panel for Grafana, powered by [Microsoft Flint](https://github.com/microsoft/flint-chart). Describe the chart you want in AI Chat, generate a proposal grounded in the current Grafana query frames, review it in a live preview, and explicitly apply it to the panel. Flint then renders the result with Apache ECharts, Vega-Lite, Plotly, or Chart.js.
 
+> [!WARNING]
+> **Project status: experimental, research-oriented proof of concept (POC).** This repository demonstrates and evaluates a Grafana integration with Flint and AI-generated visualization proposals; it is not production-ready and does not provide a stable compatibility or migration guarantee. Treat every AI proposal as untrusted: even a style-only request such as “change the colors” may currently regenerate chart type, field bindings, or Flint Spec. Review the preview and Chart Settings before Apply. See [Project status and maturity](docs/project-status.md).
+
 **AI Assist is the primary workflow.** Automatic chart selection and manual Chart Studio controls remain available as reliable fallbacks. Conversational generation uses a separately installed compatible Flint AI datasource, keeping provider configuration and credentials outside the panel.
 
 ![AI Chart Studio with live Panel preview and AI Chat](src/img/screenshots/ai-chart-studio.gif)
@@ -108,7 +111,9 @@ The integration follows these boundaries:
 - Flint Panel and dashboard JSON do not store provider API keys.
 - Chat history is bounded and temporary to the browser session.
 - Provider-facing data hints are redacted, size-limited, and omit business datasource identities.
-- AI-generated options are validated against the current query fields.
+- Ordinary requests use chart and field selections; advanced requests use a structured, data-free Flint `chartInput`.
+- AI-generated options are validated against the current query fields and compiled by the installed `flint-chart` runtime.
+- One bounded repair may receive the exact compiler error; a failed repair is shown explicitly before scalar fallback.
 - Flint Spec and UI Framework overrides cannot embed query data rows.
 - A proposal never changes the panel until the user selects Apply.
 
@@ -173,6 +178,7 @@ docs/               Requirements, schemas, design notes, and MCP examples
 
 ## Documentation
 
+- [Project status and maturity](docs/project-status.md)
 - [Documentation index](docs/README.md)
 - [Product roadmap](docs/product-roadmap.md)
 - [Agent and Grafana MCP contract](docs/agent-flint-grafana.md)

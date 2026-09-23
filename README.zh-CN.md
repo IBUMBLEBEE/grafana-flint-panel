@@ -4,6 +4,9 @@
 
 Flint 是一个由 [Microsoft Flint](https://github.com/microsoft/flint-chart) 驱动的 Grafana AI 辅助可视化面板。在 AI Chat 中描述你想要的图表，基于当前 Grafana 查询数据生成提案，在实时预览中审查，然后明确应用到 Panel。Flint 随后通过 Apache ECharts、Vega-Lite、Plotly 或 Chart.js 完成渲染。
 
+> [!WARNING]
+> **项目状态：实验性的研究型概念验证（POC），尚未达到生产就绪。** 本仓库用于验证和评估 Flint、Grafana 与 AI 可视化提案的集成，不承诺稳定的兼容性或迁移路径。请将所有 AI 提案视为不可信输入：当前即使要求“只修改配色”，仍可能重新生成图表类型、字段绑定或 Flint Spec。点击 Apply 前必须检查预览和 Chart Settings。详见[项目状态与成熟度](docs/project-status.md)。
+
 **AI Assist 是本项目的核心工作流。** 自动图表推断和 Chart Studio 手动配置作为可靠的补充能力继续保留。对话式生成通过单独安装的兼容 Flint AI 数据源完成，使 Provider 配置和凭据与 Panel 保持隔离。
 
 ![AI Chart Studio：实时 Panel 预览与 AI Chat](src/img/screenshots/ai-chart-studio.gif)
@@ -173,6 +176,7 @@ docs/               需求、Schema、设计说明和 MCP 示例
 
 ## 文档
 
+- [项目状态与成熟度](docs/project-status.md)
 - [文档索引](docs/README.md)
 - [产品路线图](docs/product-roadmap.md)
 - [Agent 与 Grafana MCP 契约](docs/agent-flint-grafana.md)
