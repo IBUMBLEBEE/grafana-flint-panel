@@ -1,6 +1,12 @@
-# Flint
+# ![Flint AI Panel logo](img/logo-title.png) Flint
 
 Flint is an AI-assisted visualization panel for Grafana, powered by Microsoft Flint. Describe the chart you want in AI Chat, generate a proposal grounded in the panel's current query frames, review the live preview, and explicitly apply it. Flint renders the approved result with Apache ECharts, Vega-Lite, Plotly, or Chart.js.
+
+## AI dependency
+
+AI Chat and chart generation require [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource), installed in the same Grafana instance. The datasource currently requires **Grafana 13.1.0 or later**. Follow its [setup documentation](https://github.com/IBUMBLEBEE/grafana-flintai-datasource#readme) to configure a provider, API token, and model, test the connection, and save the datasource before selecting its model in AI Chart Studio.
+
+Automatic and manual chart creation remain available on Grafana 12.3.0 or later without the AI datasource. Panel queries continue to use your business datasource for chart data.
 
 ## Quick start
 
@@ -24,7 +30,7 @@ Advanced users can edit **UI Framework Spec** in the Chart Studio. The panel sto
 
 ## AI Assist and safety
 
-AI Assist connects to a separately installed compatible Flint AI datasource. It combines the user's request with a redacted summary of the current query fields, generates a chart proposal, validates it against the live panel context, and stages it as a draft. The datasource owns provider configuration and credentials through Grafana `secureJsonData`; Flint Panel does not store credentials in panel options or dashboard JSON. Generated proposals remain drafts until explicitly applied.
+AI Assist connects to the separately installed [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) plugin. It combines the user's request with a redacted summary of the current query fields, generates a chart proposal, validates it against the live panel context, and stages it as a draft. The datasource owns provider configuration and credentials through Grafana `secureJsonData`; Flint Panel does not store credentials in panel options or dashboard JSON. Generated proposals remain drafts until explicitly applied.
 
 Provider-facing data hints are redacted and size-limited. Generated Flint specifications and framework overrides cannot embed query data rows.
 

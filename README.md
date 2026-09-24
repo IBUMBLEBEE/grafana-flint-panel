@@ -1,4 +1,4 @@
-# Flint Panel for Grafana
+# ![Flint AI Panel logo](src/img/logo-title.png) Flint Panel for Grafana
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -7,9 +7,9 @@ Flint is an AI-assisted visualization panel for Grafana, powered by [Microsoft F
 > [!WARNING]
 > **Project status: experimental, research-oriented proof of concept (POC).** This repository demonstrates and evaluates a Grafana integration with Flint and AI-generated visualization proposals; it is not production-ready and does not provide a stable compatibility or migration guarantee. Treat every AI proposal as untrusted: even a style-only request such as “change the colors” may currently regenerate chart type, field bindings, or Flint Spec. Review the preview and Chart Settings before Apply. See [Project status and maturity](docs/project-status.md).
 
-**AI Assist is the primary workflow.** Automatic chart selection and manual Chart Studio controls remain available as reliable fallbacks. Conversational generation uses a separately installed compatible Flint AI datasource, keeping provider configuration and credentials outside the panel.
+**AI Assist is the primary workflow.** Automatic chart selection and manual Chart Studio controls remain available as reliable fallbacks. Conversational generation uses the separately installed [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) plugin, keeping provider configuration and credentials outside the panel.
 
-![AI Chart Studio with live Panel preview and AI Chat](src/img/screenshots/ai-chart-studio.gif)
+![AI Chart Studio with live Panel preview and AI Chat](src/img/screenshots/ai-chart-studio-v0.3.1.gif)
 
 ## Highlights
 
@@ -45,6 +45,16 @@ For incremental frontend development, run:
 ```bash
 npm run dev
 ```
+
+### Install the AI dependency
+
+AI Chat and chart generation require the companion [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) plugin. Its current requirements specify **Grafana 13.1.0 or later**; the panel's automatic and manual chart features support Grafana 12.3.0 or later without this dependency.
+
+1. Install Flint AI Datasource in the same Grafana instance, following its [project documentation](https://github.com/IBUMBLEBEE/grafana-flintai-datasource#readme).
+2. Add a Flint AI Datasource instance and configure its provider, API token, and model. Test the AI connection and save the datasource.
+3. Open Flint Panel's AI Chart Studio and select the configured model.
+
+The datasource manages AI requests and credentials. Keep the panel's queries connected to the business datasource that supplies the chart data.
 
 ### Create a visualization with AI Assist
 
@@ -103,7 +113,7 @@ The AI workflow uses the query frames already attached to the Grafana panel. It 
 
 ## AI Assist setup and safety
 
-Install and configure a compatible Flint AI datasource separately, then select its model from AI Chart Studio. Automatic and manual chart creation remain available when that service is unavailable.
+Install and configure [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) as described in [Install the AI dependency](#install-the-ai-dependency), then select its model from AI Chart Studio. Automatic and manual chart creation remain available when that service is unavailable.
 
 The integration follows these boundaries:
 

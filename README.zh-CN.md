@@ -1,4 +1,4 @@
-# Grafana Flint Panel
+# ![Flint AI Panel logo](src/img/logo-title.png) Grafana Flint Panel
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -7,9 +7,9 @@ Flint 是一个由 [Microsoft Flint](https://github.com/microsoft/flint-chart) �
 > [!WARNING]
 > **项目状态：实验性的研究型概念验证（POC），尚未达到生产就绪。** 本仓库用于验证和评估 Flint、Grafana 与 AI 可视化提案的集成，不承诺稳定的兼容性或迁移路径。请将所有 AI 提案视为不可信输入：当前即使要求“只修改配色”，仍可能重新生成图表类型、字段绑定或 Flint Spec。点击 Apply 前必须检查预览和 Chart Settings。详见[项目状态与成熟度](docs/project-status.md)。
 
-**AI Assist 是本项目的核心工作流。** 自动图表推断和 Chart Studio 手动配置作为可靠的补充能力继续保留。对话式生成通过单独安装的兼容 Flint AI 数据源完成，使 Provider 配置和凭据与 Panel 保持隔离。
+**AI Assist 是本项目的核心工作流。** 自动图表推断和 Chart Studio 手动配置作为可靠的补充能力继续保留。对话式生成通过单独安装的 [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) 插件完成，使 Provider 配置和凭据与 Panel 保持隔离。
 
-![AI Chart Studio：实时 Panel 预览与 AI Chat](src/img/screenshots/ai-chart-studio.gif)
+![AI Chart Studio：实时 Panel 预览与 AI Chat](src/img/screenshots/ai-chart-studio-v0.3.1.gif)
 
 ## 核心特性
 
@@ -45,6 +45,16 @@ docker compose up --build
 ```bash
 npm run dev
 ```
+
+### 安装 AI 依赖插件
+
+AI Chat 和图表生成功能依赖配套的 [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) 插件。该插件当前要求 **Grafana 13.1.0 或更高版本**；Panel 的自动和手动图表功能仍支持 Grafana 12.3.0 或更高版本，无需安装此依赖。
+
+1. 按照依赖插件的[项目文档](https://github.com/IBUMBLEBEE/grafana-flintai-datasource#readme)，将 Flint AI Datasource 安装到同一个 Grafana 实例。
+2. 添加 Flint AI Datasource 实例，配置 Provider、API Token 和模型，测试 AI 连接并保存数据源。
+3. 打开 Flint Panel 的 AI Chart Studio，选择已配置的模型。
+
+该数据源负责 AI 请求和凭据管理。Panel 查询仍连接提供图表数据的业务数据源。
 
 ### 使用 AI Assist 创建可视化
 
@@ -103,7 +113,7 @@ AI 工作流直接使用已经绑定到 Grafana Panel 的查询帧，不会再�
 
 ## AI Assist 配置与安全边界
 
-单独安装并配置兼容的 Flint AI 数据源，然后在 AI Chart Studio 中选择其模型。服务不可用时，自动和手工创建图表的能力仍然可用。
+按照[安装 AI 依赖插件](#安装-ai-依赖插件)的说明配置 [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource)，然后在 AI Chart Studio 中选择其模型。服务不可用时，自动和手工创建图表的能力仍然可用。
 
 该集成遵循以下安全边界：
 

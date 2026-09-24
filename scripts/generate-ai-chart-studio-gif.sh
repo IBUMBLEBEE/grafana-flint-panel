@@ -5,7 +5,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 entry_image="$repo_root/src/img/screenshots/ai-chart-studio-entry.png"
 source_image="$repo_root/src/img/screenshots/ai-chart-studio.png"
-output_gif="$repo_root/src/img/screenshots/ai-chart-studio.gif"
+output_gif="$repo_root/src/img/screenshots/ai-chart-studio-v0.3.1.gif"
 frames_dir="$(mktemp -d)"
 trap 'rm -rf "$frames_dir"' EXIT
 
