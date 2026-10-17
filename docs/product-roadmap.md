@@ -14,20 +14,22 @@ is the AI entry point inside Grafana:
    `secureJsonData`.
 4. **Generate proposal** combines the bounded conversation with the current
    Panel query context and creates a validated, unapplied draft.
-5. Review the draft in the live preview, Chart Settings, Flint Spec, or UI
+5. Review the draft in the live preview, Chart Settings, Flint Spec, or read-only UI
    Framework Spec, then explicitly **Apply to panel**.
 
 ```text
 Query data
   → AI Chart Studio + bounded conversation
-  → validated proposal
-  → live preview
-  → explicit Apply
-  → Flint compiler
+  → validated source proposal
+  → bind query rows + host dimensions
+  → compile + live preview
+  → explicit Apply of source
+  → save dashboard
+  → rebind + recompile at runtime
   → ECharts / Vega-Lite / Plotly / Chart.js
 ```
 
-Manual controls (chart type, fields, JSON) remain under **Flint**. AI and MCP-originated options are checked against the live query schema and cannot embed query rows in `specJson`.
+Manual controls (chart type, fields, JSON) remain under **Flint**. AI and MCP-originated options are checked against the live query schema and cannot embed query rows in `flintInput`.
 
 ## Why this shape
 
@@ -45,6 +47,8 @@ Manual controls (chart type, fields, JSON) remain under **Flint**. AI and MCP-or
 
 - AI Chart Studio with temporary multi-turn chat and live preview
 - Auto, manual, and AI-assisted Flint proposals with explicit Apply
+- Canonical Flint source throughout generation, repair, preview, Apply and persistence
+- Automatic conversation-based proposal planning, with bounded local changes, explicit redesign intent, clarification and source-baseline guards
 - Four selectable rendering backends
 - Docs + templates for Grafana MCP (external agents)
 
@@ -56,7 +60,7 @@ Manual controls (chart type, fields, JSON) remain under **Flint**. AI and MCP-or
 
 ### Phase 3 — AI-generated Dashboard
 
-- Multi-panel generation via Grafana MCP (`patch_dashboard` / `update_dashboard`)
+- Multi-panel generation via Grafana MCP (`update_dashboard` with targeted operations)
 - Diagnosis → temporary dashboard → human approval
 - Reuses the same Flint options and approval contract as AI Chart Studio
 

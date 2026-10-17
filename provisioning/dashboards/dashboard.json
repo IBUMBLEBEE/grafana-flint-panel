@@ -39,11 +39,18 @@
       },
       "id": 1,
       "options": {
-        "chartType": "auto",
-        "xField": "",
-        "yField": "",
-        "colorField": "",
-        "specJson": ""
+        "stateVersion": 1,
+        "renderBackend": "echarts",
+        "bindingMode": "auto",
+        "flintInput": {
+          "chart_spec": {
+            "chartType": "auto",
+            "encodings": {}
+          }
+        },
+        "ai": {
+          "lastPrompt": ""
+        }
       },
       "targets": [
         {
@@ -76,11 +83,18 @@
       },
       "id": 2,
       "options": {
-        "chartType": "auto",
-        "xField": "",
-        "yField": "",
-        "colorField": "",
-        "specJson": ""
+        "stateVersion": 1,
+        "renderBackend": "echarts",
+        "bindingMode": "auto",
+        "flintInput": {
+          "chart_spec": {
+            "chartType": "auto",
+            "encodings": {}
+          }
+        },
+        "ai": {
+          "lastPrompt": ""
+        }
       },
       "targets": [
         {
@@ -112,11 +126,25 @@
       },
       "id": 3,
       "options": {
-        "chartType": "Bar Chart",
-        "xField": "region",
-        "yField": "revenue",
-        "colorField": "",
-        "specJson": ""
+        "stateVersion": 1,
+        "renderBackend": "echarts",
+        "bindingMode": "auto",
+        "flintInput": {
+          "chart_spec": {
+            "chartType": "Bar Chart",
+            "encodings": {
+              "x": {
+                "field": "region"
+              },
+              "y": {
+                "field": "revenue"
+              }
+            }
+          }
+        },
+        "ai": {
+          "lastPrompt": ""
+        }
       },
       "targets": [
         {
@@ -149,11 +177,18 @@
       },
       "id": 4,
       "options": {
-        "chartType": "auto",
-        "xField": "",
-        "yField": "",
-        "colorField": "",
-        "specJson": ""
+        "stateVersion": 1,
+        "renderBackend": "echarts",
+        "bindingMode": "auto",
+        "flintInput": {
+          "chart_spec": {
+            "chartType": "auto",
+            "encodings": {}
+          }
+        },
+        "ai": {
+          "lastPrompt": ""
+        }
       },
       "targets": [
         {
@@ -186,11 +221,25 @@
       },
       "id": 5,
       "options": {
-        "chartType": "Bar Chart",
-        "xField": "region",
-        "yField": "revenue",
-        "colorField": "",
-        "specJson": ""
+        "stateVersion": 1,
+        "renderBackend": "echarts",
+        "bindingMode": "auto",
+        "flintInput": {
+          "chart_spec": {
+            "chartType": "Bar Chart",
+            "encodings": {
+              "x": {
+                "field": "region"
+              },
+              "y": {
+                "field": "revenue"
+              }
+            }
+          }
+        },
+        "ai": {
+          "lastPrompt": ""
+        }
       },
       "targets": [
         {
@@ -227,12 +276,22 @@
       },
       "id": 6,
       "options": {
+        "stateVersion": 1,
         "renderBackend": "echarts",
-        "chartType": "Grouped Bar Chart",
-        "xField": "quarter",
-        "yField": "",
-        "colorField": "",
-        "specJson": ""
+        "bindingMode": "auto",
+        "flintInput": {
+          "chart_spec": {
+            "chartType": "Grouped Bar Chart",
+            "encodings": {
+              "x": {
+                "field": "quarter"
+              }
+            }
+          }
+        },
+        "ai": {
+          "lastPrompt": ""
+        }
       },
       "targets": [
         {
@@ -269,13 +328,34 @@
       },
       "id": 7,
       "options": {
+        "stateVersion": 1,
         "renderBackend": "plotly",
-        "chartType": "Waterfall Chart",
-        "waterfallTotals": "auto",
-        "xField": "period",
-        "yField": "newUsers",
-        "colorField": "",
-        "specJson": "{\n  \"semantic_types\": {\n    \"period\": \"YearMonth\",\n    \"newUsers\": \"Profit\"\n  },\n  \"chart_spec\": {\n    \"chartType\": \"Waterfall Chart\",\n    \"encodings\": {\n      \"x\": \"period\",\n      \"y\": \"newUsers\"\n    },\n    \"title\": \"How the player base moved through 2025\",\n    \"subtitle\": \"Net new players each month, accumulating into the year's total\",\n    \"baseSize\": {\n      \"width\": 560,\n      \"height\": 440\n    }\n  }\n}"
+        "bindingMode": "explicit",
+        "flintInput": {
+          "semantic_types": {
+            "period": "YearMonth",
+            "newUsers": "Profit"
+          },
+          "chart_spec": {
+            "chartType": "Waterfall Chart",
+            "encodings": {
+              "x": "period",
+              "y": "newUsers"
+            },
+            "title": "How the player base moved through 2025",
+            "subtitle": "Net new players each month, accumulating into the year's total",
+            "baseSize": {
+              "width": 560,
+              "height": 440
+            },
+            "chartProperties": {
+              "totals": "auto"
+            }
+          }
+        },
+        "ai": {
+          "lastPrompt": ""
+        }
       },
       "targets": [
         {

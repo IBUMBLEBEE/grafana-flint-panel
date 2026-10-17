@@ -1,0 +1,601 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ibumblebee/grafana-flint-panel/schemas/flint-panel-options.schema.json",
+  "title": "ibumblebee-flint-panel options",
+  "description": "Grafana panel options for the intelligent Flint visualization panel. Data always comes from panel queries.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["stateVersion", "renderBackend", "bindingMode", "flintInput", "ai"],
+  "properties": {
+    "renderBackend": {
+      "type": "string",
+      "description": "Flint browser render backend. Default echarts is most mature for Grafana panels.",
+      "enum": ["echarts", "vegalite", "plotly", "chartjs"]
+    },
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lastPrompt"],
+      "properties": {
+        "providerUid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "UID of the explicitly selected ibumblebee-flintai-datasource instance"
+        },
+        "lastPrompt": {
+          "type": "string",
+          "description": "Last AI Assist prompt"
+        },
+        "draft": {
+          "$ref": "#/$defs/pendingViz",
+          "description": "Validated proposal awaiting explicit Apply; can be saved with dashboard options, with query context and any refinement baseline checked before Apply."
+        },
+        "pending": {
+          "$ref": "#/$defs/pendingViz",
+          "description": "Transient proposal that FlintPanel applies, then clears"
+        }
+      }
+    },
+    "stateVersion": {
+      "const": 1
+    },
+    "bindingMode": {
+      "enum": ["auto", "explicit"],
+      "description": "Auto infers omitted bindings on current query data; explicit validates authored channels."
+    },
+    "flintInput": {
+      "$ref": "#/$defs/flintInput"
+    },
+    "recovery": {
+      "$ref": "#/$defs/recovery"
+    },
+    "seriesColors": {
+      "$ref": "#/$defs/seriesColors"
+    }
+  },
+  "$defs": {
+    "pendingViz": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stateVersion", "bindingMode", "flintInput"],
+      "properties": {
+        "rationale": {
+          "type": "string"
+        },
+        "renderBackend": {
+          "enum": ["echarts", "vegalite", "plotly", "chartjs"]
+        },
+        "source": {
+          "enum": ["auto", "provider", "mcp", "manual", "undo"]
+        },
+        "context": {
+          "$ref": "#/$defs/panelContext"
+        },
+        "stateVersion": {
+          "const": 1
+        },
+        "bindingMode": {
+          "enum": ["auto", "explicit"]
+        },
+        "flintInput": {
+          "$ref": "#/$defs/flintInput"
+        },
+        "recovery": {
+          "$ref": "#/$defs/recovery"
+        },
+        "baseFingerprint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Committed chart source fingerprint that a refinement must still match before Apply."
+        },
+        "restoreRevisionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Host-selected chart history revision for a reviewed snapshot restore."
+        },
+        "seriesColors": {
+          "$ref": "#/$defs/seriesColors"
+        }
+      }
+    },
+    "panelContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bindings", "schemaFingerprint"],
+      "properties": {
+        "dashboardUid": {
+          "type": "string"
+        },
+        "panelId": {
+          "type": "integer"
+        },
+        "schemaFingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queryFingerprints": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "runtime": {
+              "type": "string",
+              "minLength": 1
+            },
+            "saved": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "description": "Runtime and saved-query fingerprints compared immediately before Apply"
+        },
+        "queryFingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queryFingerprintSource": {
+          "enum": ["runtime", "saved"],
+          "description": "Legacy single-source fingerprint marker retained only for old draft compatibility"
+        },
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["frameIndex", "fields"],
+            "properties": {
+              "datasource": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["uid", "type"],
+                "properties": {
+                  "uid": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "type": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "refId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "frameIndex": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "fields": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "type"],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "type": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "flintInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chart_spec"],
+      "properties": {
+        "chart_spec": {
+          "type": "object",
+          "required": ["chartType"],
+          "properties": {
+            "chartType": {
+              "type": "string",
+              "description": "Flint chart template name, or auto to infer from field types.",
+              "enum": [
+                "auto",
+                "Line Chart",
+                "Area Chart",
+                "Bar Chart",
+                "Grouped Bar Chart",
+                "Stacked Bar Chart",
+                "Waterfall Chart",
+                "Scatter Plot",
+                "Pie Chart",
+                "Heatmap",
+                "Histogram",
+                "Gauge Chart",
+                "Radar Chart"
+              ]
+            },
+            "encodings": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/fieldEncoding"
+                    },
+                    {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "$ref": "#/$defs/fieldEncoding"
+                      }
+                    }
+                  ]
+                },
+                "y": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/fieldEncoding"
+                    },
+                    {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "$ref": "#/$defs/fieldEncoding"
+                      }
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/fieldEncoding"
+              }
+            },
+            "chartProperties": {
+              "type": "object"
+            },
+            "baseSize": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["width", "height"],
+              "properties": {
+                "width": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "height": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              }
+            },
+            "canvasSize": false,
+            "title": {
+              "type": "string"
+            },
+            "subtitle": {
+              "type": "string"
+            }
+          },
+          "allOf": [
+            {
+              "$ref": "#/$defs/noRuntimeData"
+            }
+          ],
+          "additionalProperties": false
+        },
+        "semantic_types": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["semanticType"],
+                "properties": {
+                  "semanticType": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "divergingMidpoint": {
+                    "type": "number"
+                  },
+                  "sortOrder": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "intrinsicDomain": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "field_display_names": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stepPadding": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "elasticity": {
+              "type": "number",
+              "minimum": 0
+            },
+            "maxStretch": {
+              "type": "number",
+              "minimum": 0
+            },
+            "maxStretchX": {
+              "type": "number",
+              "minimum": 0
+            },
+            "maxStretchY": {
+              "type": "number",
+              "minimum": 0
+            },
+            "facetElasticity": {
+              "type": "number",
+              "minimum": 0
+            },
+            "minStep": {
+              "type": "number",
+              "minimum": 0
+            },
+            "maxColorValues": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "minSubplotSize": {
+              "type": "number",
+              "minimum": 0
+            },
+            "facetGap": {
+              "type": "number",
+              "minimum": 0
+            },
+            "facetColumns": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "defaultBandSize": {
+              "type": "number",
+              "minimum": 0
+            },
+            "bandStepFit": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "bandStepFitCapacityX": {
+              "type": "number",
+              "minimum": 0
+            },
+            "bandStepFitCapacityY": {
+              "type": "number",
+              "minimum": 0
+            },
+            "minBandStep": {
+              "type": "number",
+              "minimum": 0
+            },
+            "maxBandSize": {
+              "type": "number",
+              "minimum": 0
+            },
+            "baseLabelFontSize": {
+              "type": "number",
+              "minimum": 0
+            },
+            "baseTitleFontSize": {
+              "type": "number",
+              "minimum": 0
+            },
+            "facetAspectRatioResistance": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "targetBandAR": {
+              "type": "number",
+              "minimum": 0
+            },
+            "addTooltips": {
+              "type": "boolean"
+            },
+            "groupBandFillsLanes": {
+              "type": "boolean"
+            },
+            "maintainContinuousAxisRatio": {
+              "type": "boolean"
+            },
+            "autoFacetWrap": {
+              "type": "boolean"
+            },
+            "facetFixedPadding": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["width", "height"],
+              "properties": {
+                "width": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "height": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            },
+            "continuousMarkCrossSection": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["x", "y"],
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "elasticity": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "maxStretch": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "seriesCountAxis": {
+                      "enum": ["x", "y", "auto"]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "theme_spec": {
+          "type": "string",
+          "enum": [
+            "nyt",
+            "economist",
+            "swiss",
+            "nature",
+            "mckinsey",
+            "datawrapper",
+            "powerbi",
+            "powerbi-light",
+            "pop",
+            "cartoon"
+          ],
+          "description": "Official Flint theme preset ID. Applied only by Vega-Lite; retained but inactive with other Panel backends. Custom theme objects are not supported."
+        }
+      },
+      "description": "Canonical pre-compile Flint source. Data and runtime canvas dimensions are not persisted."
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "source"],
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "description": "Legacy content retained for recovery only; never used as a renderer payload."
+    },
+    "noRuntimeData": {
+      "anyOf": [
+        {
+          "type": ["null", "boolean", "number", "string"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/noRuntimeData"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "const": "data"
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/noRuntimeData"
+          }
+        }
+      ]
+    },
+    "seriesColors": {
+      "type": "object",
+      "minProperties": 2,
+      "maxProperties": 16,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^#[0-9a-fA-F]{6}$"
+      },
+      "description": "Complete palette keyed by numeric measure fields for unfaceted grouped bars, stacked bars and lines. Applied after Flint compilation."
+    },
+    "fieldEncoding": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["field"],
+          "properties": {
+            "field": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "enum": ["quantitative", "nominal", "ordinal", "temporal"]
+            },
+            "aggregate": {
+              "enum": ["count", "sum", "average", "mean"]
+            },
+            "sortOrder": {
+              "enum": ["ascending", "descending"]
+            },
+            "sortBy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scheme": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    }
+  }
+}

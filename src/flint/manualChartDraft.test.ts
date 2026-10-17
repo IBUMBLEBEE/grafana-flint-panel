@@ -1,53 +1,109 @@
-import type { FrameworkOverride } from '../types';
 import { createManualChartDraft } from './manualChartDraft';
-import type { FlintRenderOptions } from './visualizationRevision';
+import { toChartState, type FlintInput } from './chartState';
 
-const override: FrameworkOverride = {
-  version: 1,
-  backend: 'echarts',
-  compilerVersion: 'test',
-  sourceFingerprint: 'source',
-  patch: [{ op: 'replace', path: '/grid/top', value: 24 }],
+const flintInput: FlintInput = {
+  semantic_types: { region: 'Category', revenue: 'Amount', profit: 'Profit' },
+  field_display_names: { revenue: 'Revenue' },
+  options: { addTooltips: true },
+  chart_spec: {
+    chartType: 'Bar Chart',
+    encodings: {
+      x: { field: 'region' },
+      y: { field: 'revenue', sortOrder: 'descending' },
+      column: { field: 'region' },
+    },
+    chartProperties: { cornerRadius: 5 },
+    title: 'Business results',
+    baseSize: { width: 560, height: 440 },
+  },
 };
-
-const options: FlintRenderOptions = {
-  renderBackend: 'echarts',
-  chartType: 'Bar Chart',
-  waterfallTotals: 'auto',
-  xField: 'region',
-  yField: 'revenue',
-  colorField: '',
-  specJson: '{"chartType":"Bar Chart"}',
-  frameworkOverrides: { echarts: override },
-};
+const options = toChartState({ flintInput, bindingMode: 'explicit' });
 
 describe('manual chart settings draft', () => {
-  it('turns semantic settings into a draft and clears conflicting expert edits', () => {
-    expect(createManualChartDraft({ options, patch: { chartType: 'Line Chart' } })).toMatchObject({
-      renderBackend: 'echarts',
-      chartType: 'Line Chart',
-      specJson: '',
-      frameworkOverrides: {},
-      source: 'manual',
+  it('changes the measure while retaining semantics, facets, properties and metadata', () => {
+    const draft = createManualChartDraft({ options, patch: { yField: 'profit' } });
+    expect(draft.flintInput).toMatchObject({
+      ...flintInput,
+      chart_spec: {
+        ...flintInput.chart_spec,
+        encodings: { ...flintInput.chart_spec.encodings, y: { field: 'profit', sortOrder: 'descending' } },
+      },
     });
+    expect(options.flintInput).toEqual(flintInput);
+    expect(draft).not.toHaveProperty('specJson');
   });
 
-  it('keeps backend-independent Flint Spec when only the renderer changes', () => {
-    expect(createManualChartDraft({ options, patch: { renderBackend: 'plotly' } })).toMatchObject({
-      renderBackend: 'plotly',
-      chartType: 'Bar Chart',
-      specJson: options.specJson,
-      frameworkOverrides: options.frameworkOverrides,
-      source: 'manual',
-    });
+  it('switches backends without changing the source', () => {
+    const draft = createManualChartDraft({ options, patch: { renderBackend: 'plotly' } });
+    expect(draft.renderBackend).toBe('plotly');
+    expect(draft.flintInput).toEqual(flintInput);
   });
 
-  it('falls back to Auto when the chart is unsupported by the selected renderer', () => {
+  it('retains unsupported source instead of silently replacing its chart type', () => {
     const draft = createManualChartDraft({
-      options: { ...options, chartType: 'Gauge Chart', specJson: '' },
+      options: toChartState({ chartType: 'Gauge Chart', yField: 'revenue' }),
       patch: { renderBackend: 'vegalite' },
     });
-
-    expect(draft.chartType).toBe('auto');
+    expect(draft.flintInput?.chart_spec.chartType).toBe('Gauge Chart');
   });
+
+  it('represents Auto as a missing source binding and keeps other channels', () => {
+    const draft = createManualChartDraft({ options, patch: { yField: '' } });
+    expect(draft.bindingMode).toBe('auto');
+    expect(draft.flintInput?.chart_spec.encodings).not.toHaveProperty('y');
+    expect(draft.flintInput?.chart_spec.encodings?.column).toEqual({ field: 'region' });
+  });
+});
+
+it('selects an ordered subset of measures and preserves matching encoding metadata', () => {
+  const draft = createManualChartDraft({ options, patch: { channelFields: { y: ['profit', 'revenue'] } } });
+  expect(draft.flintInput?.chart_spec.encodings.y).toEqual([
+    { field: 'profit' },
+    { field: 'revenue', sortOrder: 'descending' },
+  ]);
+  expect(options.flintInput).toEqual(flintInput);
+});
+
+it('switches compatible mappings and keeps chart metadata and global options', () => {
+  const grouped = createManualChartDraft({
+    options,
+    patch: { chartType: 'Grouped Bar Chart', channelFields: { group: ['region'] } },
+  });
+  const stacked = createManualChartDraft({ options: grouped, patch: { chartType: 'Stacked Bar Chart' } });
+  expect(stacked.flintInput?.chart_spec.encodings).toMatchObject({
+    x: { field: 'region' },
+    y: { field: 'revenue', sortOrder: 'descending' },
+    color: { field: 'region' },
+    column: { field: 'region' },
+  });
+  expect(stacked.flintInput?.chart_spec.encodings).not.toHaveProperty('group');
+  expect(stacked.flintInput?.chart_spec).toMatchObject({
+    title: 'Business results',
+    baseSize: { width: 560, height: 440 },
+  });
+  expect(stacked.flintInput?.options).toEqual({ addTooltips: true });
+});
+
+it('changes and resets a property without resetting other settings', () => {
+  const draft = createManualChartDraft({
+    options,
+    patch: { chartProperties: { cornerRadius: 9 }, addTooltips: false },
+  });
+  expect(draft.flintInput?.chart_spec.chartProperties).toEqual({ cornerRadius: 9 });
+  expect(draft.flintInput?.options?.addTooltips).toBe(false);
+  const reset = createManualChartDraft({ options: draft, patch: { chartProperties: { cornerRadius: undefined } } });
+  expect(reset.flintInput?.chart_spec.chartProperties).not.toHaveProperty('cornerRadius');
+  expect(reset.flintInput?.options?.addTooltips).toBe(false);
+  expect(reset.flintInput?.field_display_names).toEqual(flintInput.field_display_names);
+});
+
+it('retains a palette for compatible chart switches and removes it when the measures change', () => {
+  const current = toChartState({
+    flintInput: { chart_spec: { chartType: 'Line Chart', encodings: { x: 'region', y: ['revenue', 'profit'] } } },
+    seriesColors: { revenue: '#111111', profit: '#222222' },
+  });
+  const compatible = createManualChartDraft({ options: current, patch: { chartType: 'Grouped Bar Chart' } });
+  expect(compatible.seriesColors).toEqual(current.seriesColors);
+  const changed = createManualChartDraft({ options: compatible, patch: { channelFields: { y: ['revenue'] } } });
+  expect(changed.seriesColors).toBeUndefined();
 });

@@ -1,0 +1,43 @@
+{
+  "type": "ibumblebee-flint-panel",
+  "title": "Node CPU (Flint Line)",
+  "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 0
+  },
+  "datasource": {
+    "type": "prometheus",
+    "uid": "REPLACE_PROMETHEUS_UID"
+  },
+  "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+  },
+  "targets": [
+    {
+      "refId": "A",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "REPLACE_PROMETHEUS_UID"
+      },
+      "expr": "avg by(instance) (rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
+      "legendFormat": "{{instance}}"
+    }
+  ],
+  "options": {
+    "stateVersion": 1,
+    "renderBackend": "echarts",
+    "bindingMode": "auto",
+    "flintInput": {
+      "chart_spec": {
+        "chartType": "Line Chart",
+        "encodings": {}
+      }
+    },
+    "ai": {
+      "lastPrompt": ""
+    }
+  }
+}

@@ -1,21 +1,20 @@
-import { FlintOptions, FlintPendingViz, sanitizeAiConfig } from '../types';
+import { type FlintOptions, type FlintPendingViz, type PersistedFlintOptions, sanitizeAiConfig } from '../types';
+import { toChartState } from './chartState';
+import { snapshotFingerprint } from './visualizationRevision';
 
-/** Merge staged AI visualization fields into panel root options. */
-export function applyPendingViz(options: FlintOptions, pending: FlintPendingViz): FlintOptions {
+/** Save reviewed source and series colors; renderer output and proposal evidence are transient. */
+export function applyPendingViz(options: FlintOptions, pending: FlintPendingViz): PersistedFlintOptions {
+  if (pending.baseFingerprint !== undefined && pending.baseFingerprint !== snapshotFingerprint(toChartState(options))) {
+    throw new Error('This proposal is stale because the chart source changed before Apply.');
+  }
   const ai = sanitizeAiConfig(options.ai);
-  return {
-    ...options,
+  const state = toChartState({
+    ...pending,
     renderBackend: pending.renderBackend ?? options.renderBackend,
-    chartType: pending.chartType,
     waterfallTotals: pending.waterfallTotals ?? options.waterfallTotals,
-    xField: pending.xField,
-    yField: pending.yField,
-    colorField: pending.colorField,
-    specJson: pending.specJson,
-    frameworkOverrides: pending.frameworkOverrides ?? options.frameworkOverrides,
-    ai: {
-      ...ai,
-      pending: undefined,
-    },
+  });
+  return {
+    ...state,
+    ai: { ...ai, draft: undefined, pending: undefined },
   };
 }

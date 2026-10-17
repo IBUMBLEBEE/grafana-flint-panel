@@ -3,7 +3,7 @@ import { PanelPlugin, type StandardEditorProps } from '@grafana/data';
 
 import { FlintPanel } from './components/FlintPanel';
 import { defaultAiConfig, type FlintAiConfig, FlintOptions } from './types';
-import { hasLegacyDataScope, migrateFlintOptions } from './migrations';
+import { needsChartStateMigration, migrateFlintOptions } from './migrations';
 
 const LazyAiAssistEditor = lazy(() =>
   import(/* webpackChunkName: "ai-assist" */ './components/AiAssistEditor').then(({ AiAssistEditor }) => ({
@@ -15,14 +15,14 @@ const AiAssistEditor = (props: StandardEditorProps<FlintAiConfig, unknown, Flint
   React.createElement(Suspense, { fallback: null }, React.createElement(LazyAiAssistEditor, props));
 
 export const plugin = new PanelPlugin<FlintOptions>(FlintPanel)
-  .setMigrationHandler(migrateFlintOptions, hasLegacyDataScope)
+  .setMigrationHandler(migrateFlintOptions, needsChartStateMigration)
   .setPanelOptions((builder) => {
     return builder.addCustomEditor({
       id: 'ai',
       path: 'ai',
-      name: 'AI Assist',
-      description: 'Data hints plus provider-free Auto and explicit Generate through a selected Flint AI data source.',
-      category: ['AI Assist'],
+      name: 'Chart workbench',
+      description: 'Configure charts manually, preview and apply changes. AI Chat is optional.',
+      category: ['Chart settings'],
       editor: AiAssistEditor,
       defaultValue: defaultAiConfig,
     });

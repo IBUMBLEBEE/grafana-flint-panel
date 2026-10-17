@@ -1,12 +1,7 @@
 import type { FlintPanelContextSnapshot } from '../ai/panelContext';
-import {
-  defaultFlintOptions,
-  type FlintOptions,
-  type FlintPendingViz,
-  type FrameworkOverrides,
-  type WaterfallTotalsMode,
-} from '../types';
+import { defaultFlintOptions, type FlintOptions, type FlintPendingViz, type WaterfallTotalsMode } from '../types';
 import type { RenderBackend } from './backends';
+import { chartSettings, toChartState, type FlintChartState } from './chartState';
 
 /** The complete data-free input that can affect Flint compilation or rendering. */
 export interface FlintRenderOptions {
@@ -17,10 +12,14 @@ export interface FlintRenderOptions {
   yField: string;
   colorField: string;
   specJson: string;
-  frameworkOverrides?: FrameworkOverrides;
+  flintInput?: FlintChartState['flintInput'];
+  seriesColors?: FlintChartState['seriesColors'];
+  bindingMode?: FlintChartState['bindingMode'];
+  stateVersion?: 1;
+  recovery?: FlintChartState['recovery'];
 }
 
-export type FlintVizSnapshot = FlintRenderOptions;
+export type FlintVizSnapshot = FlintChartState;
 
 export interface VisualizationRevision {
   options: FlintRenderOptions;
@@ -44,32 +43,31 @@ function canonicalize(value: unknown): unknown {
   );
 }
 
-function revisionKey(options: FlintRenderOptions): string {
-  return JSON.stringify(canonicalize(options));
+function revisionKey(options: FlintChartState): string {
+  return JSON.stringify(canonicalize(toChartState(options)));
 }
 
 /** Resolve a proposal over committed options and identify only visual changes. */
 export function resolveVisualizationRevision(options: FlintOptions, draft?: FlintPendingViz): VisualizationRevision {
-  const renderOptions: FlintRenderOptions = {
-    renderBackend: draft?.renderBackend ?? options.renderBackend ?? defaultFlintOptions.renderBackend,
-    chartType: draft?.chartType ?? options.chartType ?? defaultFlintOptions.chartType,
-    waterfallTotals: draft?.waterfallTotals ?? options.waterfallTotals ?? defaultFlintOptions.waterfallTotals,
-    xField: draft?.xField ?? options.xField ?? defaultFlintOptions.xField,
-    yField: draft?.yField ?? options.yField ?? defaultFlintOptions.yField,
-    colorField: draft?.colorField ?? options.colorField ?? defaultFlintOptions.colorField,
-    specJson: draft?.specJson ?? options.specJson ?? defaultFlintOptions.specJson,
-    frameworkOverrides: draft?.frameworkOverrides ?? options.frameworkOverrides,
-  };
-
-  return { options: renderOptions, key: revisionKey(renderOptions) };
+  const state = toChartState(
+    draft
+      ? {
+          ...draft,
+          renderBackend: draft.renderBackend ?? options.renderBackend ?? defaultFlintOptions.renderBackend,
+          waterfallTotals: draft.waterfallTotals ?? options.waterfallTotals,
+        }
+      : options
+  );
+  const renderOptions = { ...state, ...chartSettings(state) };
+  return { options: renderOptions, key: JSON.stringify(canonicalize(state)) };
 }
 
 export function captureVizSnapshot(options: FlintOptions): FlintVizSnapshot {
-  return resolveVisualizationRevision(options).options;
+  return toChartState(options);
 }
 
 export function snapshotWithDraft(options: FlintOptions, draft: FlintPendingViz): FlintVizSnapshot {
-  return resolveVisualizationRevision(options, draft).options;
+  return toChartState(resolveVisualizationRevision(options, draft).options);
 }
 
 export function snapshotFingerprint(snapshot: FlintVizSnapshot): string {
@@ -78,7 +76,7 @@ export function snapshotFingerprint(snapshot: FlintVizSnapshot): string {
 
 export function snapshotToPending(snapshot: FlintVizSnapshot, context?: FlintPanelContextSnapshot): FlintPendingViz {
   return {
-    ...snapshot,
+    ...toChartState(snapshot),
     rationale: 'Restored the visualization configuration from before the last AI Apply.',
     context,
     source: 'undo',

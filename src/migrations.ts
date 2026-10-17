@@ -1,28 +1,61 @@
-import { type FlintOptions, sanitizeAiConfig } from './types';
+import { type FlintOptions, type FlintPendingViz, type PersistedFlintOptions, sanitizeAiConfig } from './types';
+import { toChartState } from './flint/chartState';
 
-type LegacyFlintOptions = FlintOptions & { dataScope?: unknown };
-
-/** Remove the retired frame selector without changing Grafana datasource or targets. */
-export function migrateFlintOptions(panel: { options: FlintOptions }): Partial<FlintOptions> {
-  const { dataScope: _legacyDataScope, ...options } = panel.options as LegacyFlintOptions;
+function migrateProposal(proposal?: FlintPendingViz): FlintPendingViz | undefined {
+  if (!proposal) {
+    return undefined;
+  }
   return {
-    ...options,
-    ai: sanitizeAiConfig(options.ai),
+    ...toChartState(proposal),
+    rationale: proposal.rationale,
+    context: proposal.context,
+    source: proposal.source,
+    ...(proposal.baseFingerprint !== undefined ? { baseFingerprint: proposal.baseFingerprint } : {}),
   };
 }
 
-export function hasLegacyDataScope(panel: { options?: unknown }): boolean {
-  const options = panel.options;
-  if (!options || typeof options !== 'object') {
-    return false;
+/** Upgrade source state and retire all backend overrides without changing Grafana queries. */
+export function migrateFlintOptions(panel: { options: FlintOptions }): PersistedFlintOptions {
+  const ai = sanitizeAiConfig(panel.options.ai);
+  return {
+    ...toChartState(panel.options),
+    ai: { ...ai, draft: migrateProposal(ai.draft), pending: migrateProposal(ai.pending) },
+  };
+}
+
+export function needsChartStateMigration(panel: { options?: unknown }): boolean {
+  const raw = panel.options;
+  if (!raw || typeof raw !== 'object') {
+    return true;
   }
-  const record = options as Record<string, unknown>;
-  const ai = record.ai && typeof record.ai === 'object' ? (record.ai as Record<string, unknown>) : undefined;
-  const draft = ai?.draft && typeof ai.draft === 'object' ? (ai.draft as Record<string, unknown>) : undefined;
-  const pending = ai?.pending && typeof ai.pending === 'object' ? (ai.pending as Record<string, unknown>) : undefined;
-  return (
-    Object.hasOwn(record, 'dataScope') ||
-    Boolean(draft && Object.hasOwn(draft, 'dataScope')) ||
-    Boolean(pending && Object.hasOwn(pending, 'dataScope'))
+  const options = raw as Record<string, unknown>;
+  const oldKeys = [
+    'dataScope',
+    'frameworkOverrides',
+    'chartType',
+    'waterfallTotals',
+    'xField',
+    'yField',
+    'colorField',
+    'specJson',
+  ];
+  const input = options.flintInput as { chart_spec?: Record<string, unknown> } | undefined;
+  if (
+    options.stateVersion !== 1 ||
+    !input ||
+    !['auto', 'explicit'].includes(String(options.bindingMode)) ||
+    Boolean(input.chart_spec && Object.hasOwn(input.chart_spec, 'canvasSize')) ||
+    oldKeys.some((key) => Object.hasOwn(options, key))
+  ) {
+    return true;
+  }
+  const ai = options.ai as { draft?: Record<string, unknown>; pending?: Record<string, unknown> } | undefined;
+  return [ai?.draft, ai?.pending].some(
+    (proposal) =>
+      proposal &&
+      (proposal.stateVersion !== 1 || !proposal.flintInput || oldKeys.some((key) => Object.hasOwn(proposal, key)))
   );
 }
+
+/** Kept for callers detecting pre-source-state dashboards. */
+export const hasLegacyDataScope = needsChartStateMigration;

@@ -1,55 +1,23 @@
 import type { FlintPanelContextSnapshot } from '../ai/panelContext';
 import type { FlintPendingViz } from '../types';
 import { assemblePanelChart, type AssembledChart, type PanelSize } from './assemble';
+import { parseFlintInput, toChartState, type ChartStateSource } from './chartState';
 import type { FlintTable } from './dataFrames';
-import { clearFrameworkOverride } from './frameworkOverride';
-import type { FlintRenderOptions } from './visualizationRevision';
 
 export type FlintSpecEvaluation =
   | { status: 'invalid'; error: string }
-  | {
-      status: 'valid';
-      draft: FlintPendingViz;
-      assembled: AssembledChart;
-      normalizedText: string;
-    };
+  | { status: 'valid'; draft: FlintPendingViz; assembled: AssembledChart; normalizedText: string };
 
-function normalizeSpecText(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return '';
-  }
-
-  try {
-    return JSON.stringify(JSON.parse(trimmed), null, 2);
-  } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause);
-    throw new Error(`Invalid Flint spec JSON: ${message}`);
-  }
+/** Show the saved source, including Auto choices, without freezing inferred runtime fields. */
+export function editableFlintSpecText(options: ChartStateSource, _assembled?: AssembledChart): string {
+  const state = toChartState(options);
+  return state.recovery?.source ?? JSON.stringify(state.flintInput, null, 2);
 }
 
-/**
- * Returns the data-free source document shown in the editable workbench.
- * Runtime data and compile dimensions must never be persisted in specJson.
- */
-export function editableFlintSpecText(options: FlintRenderOptions, assembled: AssembledChart): string {
-  if (options.specJson.trim()) {
-    try {
-      return normalizeSpecText(options.specJson);
-    } catch {
-      return options.specJson;
-    }
-  }
-
-  const { data: _runtimeData, ...inputWithoutData } = assembled.input;
-  const { canvasSize: _canvasSize, baseSize: _baseSize, ...chartSpec } = inputWithoutData.chart_spec;
-  return JSON.stringify({ ...inputWithoutData, chart_spec: chartSpec }, null, 2);
-}
-
-/** Validate, compile, and normalize one manual Flint Spec revision. */
+/** All Spec edits produce the same canonical state used by controls, Apply and Undo. */
 export function evaluateFlintSpecDraft(args: {
   text: string;
-  options: FlintRenderOptions;
+  options: ChartStateSource;
   table: FlintTable;
   size: PanelSize;
   context?: FlintPanelContextSnapshot;
@@ -57,28 +25,22 @@ export function evaluateFlintSpecDraft(args: {
   if (!args.table.values.length) {
     return { status: 'invalid', error: 'Run the Panel query before validating a Flint Spec.' };
   }
-
   try {
-    const normalizedText = normalizeSpecText(args.text);
-    const frameworkOverrides = clearFrameworkOverride(args.options.frameworkOverrides, args.options.renderBackend);
-    const candidateOptions = { ...args.options, specJson: normalizedText, frameworkOverrides };
-    const assembled = assemblePanelChart(args.table, candidateOptions, args.size);
-    const draft: FlintPendingViz = {
+    const input = parseFlintInput(args.text);
+    const state = toChartState({
       renderBackend: args.options.renderBackend,
-      chartType: args.options.chartType,
-      xField: args.options.xField,
-      yField: args.options.yField,
-      colorField: args.options.colorField,
-      specJson: normalizedText,
-      frameworkOverrides,
+      bindingMode: input.chart_spec.chartType === 'auto' ? 'auto' : 'explicit',
+      flintInput: input,
+      seriesColors: toChartState(args.options).seriesColors,
+    });
+    const assembled = assemblePanelChart(args.table, state, args.size);
+    const draft = {
+      ...state,
       rationale: 'Manually edited Flint Spec.',
       context: args.context,
-      source: 'manual',
+      source: 'manual' as const,
     };
-    if (normalizedText) {
-      draft.chartType = assembled.input.chart_spec.chartType;
-    }
-    return { status: 'valid', draft, assembled, normalizedText };
+    return { status: 'valid', draft, assembled, normalizedText: JSON.stringify(state.flintInput, null, 2) };
   } catch (cause) {
     return { status: 'invalid', error: cause instanceof Error ? cause.message : String(cause) };
   }

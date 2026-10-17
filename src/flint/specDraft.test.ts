@@ -23,8 +23,8 @@ describe('editableFlintSpecText', () => {
     expect(document.data).toBeUndefined();
     expect(document.chart_spec.canvasSize).toBeUndefined();
     expect(document.chart_spec.baseSize).toBeUndefined();
-    expect(document.chart_spec.chartType).toBe('Bar Chart');
-    expect(document.chart_spec.encodings.x.field).toBe('region');
+    expect(document.chart_spec.chartType).toBe('auto');
+    expect(document.chart_spec.encodings).toEqual({});
   });
 
   it('preserves and formats an existing authored spec instead of materializing runtime output', () => {
@@ -35,8 +35,7 @@ describe('editableFlintSpecText', () => {
     const assembled = assemblePanelChart(table, options, size);
 
     expect(JSON.parse(editableFlintSpecText(options, assembled))).toEqual({
-      chartType: 'Bar Chart',
-      encodings: { x: { field: 'region' }, y: { field: 'revenue' } },
+      chart_spec: { chartType: 'Bar Chart', encodings: { x: { field: 'region' }, y: { field: 'revenue' } } },
     });
   });
 });
@@ -54,8 +53,8 @@ describe('evaluateFlintSpecDraft', () => {
     if (result.status === 'valid') {
       expect(result.draft.source).toBe('manual');
       expect(result.draft.renderBackend).toBe('echarts');
-      expect(result.draft.chartType).toBe('Pie Chart');
-      expect(result.draft.specJson).toContain('\n  "chartType": "Pie Chart"');
+      expect(result.draft.flintInput?.chart_spec.chartType).toBe('Pie Chart');
+      expect(result.normalizedText).toContain('"chartType": "Pie Chart"');
       expect(result.assembled.input.chart_spec.chartType).toBe('Pie Chart');
     }
   });
@@ -89,29 +88,80 @@ describe('evaluateFlintSpecDraft', () => {
       expect.objectContaining({ status: 'invalid', error: expect.stringMatching(/must not contain data/) })
     );
   });
+});
 
-  it('clears the current backend override when its Flint source is edited', () => {
-    const result = evaluateFlintSpecDraft({
-      text: '{"chartType":"Bar Chart","encodings":{"x":{"field":"region"},"y":{"field":"revenue"}}}',
-      options: {
-        ...defaultFlintOptions,
-        frameworkOverrides: {
-          echarts: {
-            version: 1,
-            backend: 'echarts',
-            compilerVersion: '0.5.1',
-            sourceFingerprint: 'old-source',
-            patch: [{ op: 'replace', path: '/tooltip/trigger', value: 'item' }],
-          },
-        },
+describe('Panel-only source validation', () => {
+  const source = {
+    chart_spec: { chartType: 'Bar Chart', encodings: { x: 'region', y: 'revenue' } },
+  };
+  it.each([
+    [{ ...source, options: { addTooltips: 'off' } }, /options.addTooltips.*boolean/],
+    [{ ...source, options: [] }, /options.*object/],
+    [{ ...source, options: { tooltip: false } }, /options.tooltip.*not supported/],
+    [{ ...source, options: { stepPadding: 2 } }, /options.stepPadding/],
+    [{ ...source, options: { facetColumns: 1.5 } }, /options.facetColumns/],
+    [{ ...source, chart_spec: { ...source.chart_spec, title: 12 } }, /chart_spec.title.*string/],
+    [{ ...source, chart_spec: { ...source.chart_spec, baseSize: { width: 0, height: 100 } } }, /baseSize.width/],
+    [{ ...source, chart_spec: { ...source.chart_spec, canvasSize: { width: 100, height: 100 } } }, /canvasSize.*host/],
+    [{ ...source, chart_spec: { ...source.chart_spec, background: 'red' } }, /chart_spec.background/],
+    [{ ...source, chart_spec: { ...source.chart_spec, encodings: { x: '', y: 'revenue' } } }, /encodings.x/],
+    [
+      { ...source, chart_spec: { ...source.chart_spec, encodings: { x: 'region', y: ['revenue', 'revenue'] } } },
+      /y\[1\].*duplicates/,
+    ],
+    [
+      { ...source, chart_spec: { ...source.chart_spec, encodings: { x: 'region', y: ['revenue', 'region'] } } },
+      /y\[1\].*numeric/,
+    ],
+    [
+      { ...source, chart_spec: { ...source.chart_spec, encodings: { x: 'region', y: [['revenue']] } } },
+      /y\[0\].*object/,
+    ],
+    [
+      {
+        ...source,
+        chart_spec: { ...source.chart_spec, encodings: { x: 'region', y: { field: 'revenue', type: 'number' } } },
       },
-      table,
-      size,
-    });
+      /encodings.y.type/,
+    ],
+    [
+      {
+        ...source,
+        chart_spec: { ...source.chart_spec, encodings: { x: 'region', y: { field: 'revenue', aggregate: 'median' } } },
+      },
+      /encodings.y.aggregate/,
+    ],
+    [
+      {
+        ...source,
+        chart_spec: { ...source.chart_spec, encodings: { x: 'region', y: { field: 'revenue', label: 'UI' } } },
+      },
+      /encodings.y.label/,
+    ],
+    [
+      { ...source, chart_spec: { ...source.chart_spec, encodings: { x: 'region', y: 'revenue', color: ['region'] } } },
+      /encodings.color.*arrays/,
+    ],
+    [
+      { ...source, semantic_types: { revenue: { semanticType: 'Amount', intrinsicDomain: [10, 0] } } },
+      /intrinsicDomain/,
+    ],
+    [{ ...source, theme_spec: 'unofficial-theme' }, /official Flint theme/],
+  ])('rejects malformed configuration without modifying the current source: %j', (input, error) => {
+    const original = JSON.stringify(defaultFlintOptions);
+    const result = evaluateFlintSpecDraft({ text: JSON.stringify(input), options: defaultFlintOptions, table, size });
+    expect(result).toMatchObject({ status: 'invalid', error: expect.stringMatching(error as RegExp) });
+    expect(JSON.stringify(defaultFlintOptions)).toBe(original);
+  });
 
-    expect(result.status).toBe('valid');
-    if (result.status === 'valid') {
-      expect(result.draft.frameworkOverrides?.echarts).toBeUndefined();
-    }
+  it('accepts valid official options and semantics through the same compile path', () => {
+    const input = {
+      ...source,
+      options: { addTooltips: false, stepPadding: 0.2, facetFixedPadding: { width: 10, height: 10 } },
+      semantic_types: { revenue: { semanticType: 'Amount', unit: 'USD', divergingMidpoint: 0 } },
+    };
+    expect(
+      evaluateFlintSpecDraft({ text: JSON.stringify(input), options: defaultFlintOptions, table, size }).status
+    ).toBe('valid');
   });
 });

@@ -51,9 +51,23 @@ ci/
 # Local tool caches and indexes
 .cache/
 .codegraph/
+diagnostics
 
-# Local project documentation; keep only the public index and roadmap
+# Local project documentation; retain public docs and the persisted-options schema
 /docs/*
 !/docs/README.md
 !/docs/product-roadmap.md
 !/docs/project-status.md
+!/docs/schemas/
+
+!/docs/agent-flint-grafana.md
+!/docs/templates/
+
+!/docs/contracts/
+
+# Local credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key

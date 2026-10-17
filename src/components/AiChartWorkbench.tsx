@@ -1,21 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { css } from '@emotion/css';
 import type { DataFrame, GrafanaTheme2 } from '@grafana/data';
-import { Alert, Button, CodeEditor, Combobox, IconButton, Tab, TabsBar, ToolbarButton, useStyles2 } from '@grafana/ui';
+import { Alert, Button, CodeEditor, Combobox, IconButton, Tab, TabsBar, useStyles2 } from '@grafana/ui';
 
 import { isSamePanelContext, type FlintPanelContextSnapshot } from '../ai/panelContext';
 import { proposalOwner, type SpecEditorStatus } from '../ai/proposalOwnership';
 import { assemblePanelChart } from '../flint/assemble';
 import { RENDER_BACKENDS, type RenderBackend } from '../flint/backends';
-import { allowedChartTypesForBackend } from '../flint/chartTypes';
-import { clearFrameworkOverride } from '../flint/frameworkOverride';
 import { createManualChartDraft, type ManualChartSettingsPatch } from '../flint/manualChartDraft';
 import { preparePanelData } from '../flint/preparePanelData';
 import { editableFlintSpecText, evaluateFlintSpecDraft, type FlintSpecEvaluation } from '../flint/specDraft';
-import { evaluateFrameworkSpecDraft, type FrameworkSpecEvaluation } from '../flint/frameworkSpecDraft';
 import { resolveVisualizationRevision, type FlintRenderOptions } from '../flint/visualizationRevision';
-import { defaultFlintOptions, type FlintOptions, type FlintPendingViz, type WaterfallTotalsMode } from '../types';
+import { defaultFlintOptions, type FlintOptions, type FlintPendingViz } from '../types';
 import { AiChartLivePreview } from './AiChartLivePreview';
+import { ChartSettings } from './ChartSettings';
+import { toChartState } from '../flint/chartState';
 
 type WorkbenchView = 'preview' | 'settings' | 'flint' | 'framework';
 type PreviewStatus = 'checking' | 'ready' | 'error';
@@ -38,32 +37,22 @@ interface SpecEditSession {
 
 type SpecEvaluationState =
   { status: 'pristine' | 'checking' } | Extract<FlintSpecEvaluation, { status: 'valid' | 'invalid' }>;
-type FrameworkEvaluationState =
-  { status: 'pristine' | 'checking' } | Extract<FrameworkSpecEvaluation, { status: 'valid' | 'invalid' }>;
-
 interface AiChartWorkbenchProps {
   frames: DataFrame[];
   options?: FlintOptions;
   draft?: FlintPendingViz;
-  querySummary: string;
   previewLabel: string;
+  notice?: string;
+  error?: string;
+  previewError?: string;
+  draftIsStale?: boolean;
+  onDismissNotice?: () => void;
   panelContext?: FlintPanelContextSnapshot;
   specDraftControls: SpecDraftControls;
-  isChatOpen: boolean;
-  onToggleChat: () => void;
   onPreviewStatusChange: (status: PreviewStatus, error?: string) => void;
 }
 
 const COMPILE_SIZE = { width: 800, height: 450 };
-const AUTO_FIELD_VALUE = '__flint_auto_field__';
-const WATERFALL_TOTAL_OPTIONS: Array<{ label: string; value: WaterfallTotalsMode }> = [
-  { label: 'Auto', value: 'auto' },
-  { label: 'None', value: 'none' },
-  { label: 'First only', value: 'first' },
-  { label: 'Last only', value: 'last' },
-  { label: 'First and last', value: 'both' },
-];
-
 const getStyles = (theme: GrafanaTheme2) => ({
   root: css`
     display: flex;
@@ -72,47 +61,37 @@ const getStyles = (theme: GrafanaTheme2) => ({
     min-width: 0;
     min-height: 0;
   `,
-  header: css`
-    min-height: 52px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: ${theme.spacing(1)};
-    padding: ${theme.spacing(1, 2)};
-    background: ${theme.colors.background.primary};
-  `,
-  titleRow: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(0.5)};
-  `,
   title: css`
     font-weight: ${theme.typography.fontWeightMedium};
   `,
-  headerActions: css`
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-  `,
-  frameworkSelect: css`
-    min-width: 112px;
-  `,
-  screenReaderOnly: css`
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
+  rendererSetting: css`
+    margin-bottom: ${theme.spacing(2)};
   `,
   tabs: css`
     flex: 0 0 auto;
     padding: 0 ${theme.spacing(2)};
     background: ${theme.colors.background.primary};
+  `,
+  content: css`
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  `,
+  notifications: css`
+    position: absolute;
+    top: ${theme.spacing(1)};
+    left: ${theme.spacing(2)};
+    right: ${theme.spacing(2)};
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(1)};
+    min-width: 0;
+    max-height: calc(100% - ${theme.spacing(2)});
+    overflow-y: auto;
   `,
   draftBar: css`
     display: flex;
@@ -122,7 +101,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
     flex-wrap: wrap;
     gap: ${theme.spacing(1)};
     min-height: 42px;
-    padding: ${theme.spacing(0.75, 2)};
+    padding: ${theme.spacing(1.5, 2)};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
     background: ${theme.colors.background.secondary};
   `,
   draftStatus: css`
@@ -161,7 +142,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     background: ${theme.colors.background.canvas};
   `,
   settingsContent: css`
-    max-width: 680px;
+    min-width: 0;
     padding: ${theme.spacing(2)};
     border: 1px solid ${theme.colors.border.weak};
     border-radius: ${theme.shape.radius.default};
@@ -293,20 +274,21 @@ export const AiChartWorkbench = ({
   frames,
   options,
   draft,
-  querySummary,
   previewLabel,
+  notice,
+  error,
+  previewError,
+  draftIsStale,
+  onDismissNotice,
   panelContext,
   specDraftControls,
-  isChatOpen,
-  onToggleChat,
   onPreviewStatusChange,
 }: AiChartWorkbenchProps) => {
   const styles = useStyles2(getStyles);
   const [activeView, setActiveView] = useState<WorkbenchView>('preview');
   const [specSession, setSpecSession] = useState<SpecEditSession>();
+  const [settingsError, setSettingsError] = useState<string>();
   const [specEvaluation, setSpecEvaluation] = useState<SpecEvaluationState>({ status: 'pristine' });
-  const [frameworkSession, setFrameworkSession] = useState<SpecEditSession>();
-  const [frameworkEvaluation, setFrameworkEvaluation] = useState<FrameworkEvaluationState>({ status: 'pristine' });
   const specDraftControlsRef = useRef(specDraftControls);
   const prepared = useMemo(() => preparePanelData(frames), [frames]);
   const visualization = useMemo(
@@ -314,21 +296,6 @@ export const AiChartWorkbench = ({
     [draft, options]
   );
   const effectiveOptions = visualization.options;
-  const chartTypeOptions = useMemo(
-    () =>
-      allowedChartTypesForBackend(effectiveOptions.renderBackend).map((chartType) => ({
-        label: chartType === 'auto' ? 'Auto' : chartType,
-        value: chartType,
-      })),
-    [effectiveOptions.renderBackend]
-  );
-  const fieldOptions = useMemo(
-    () => [
-      { label: 'Auto', value: AUTO_FIELD_VALUE },
-      ...prepared.table.fields.map((field) => ({ label: field.name, value: field.name })),
-    ],
-    [prepared.table.fields]
-  );
   const compiled = useMemo(() => {
     if (!frames.length || !prepared.table.values.length) {
       return {
@@ -396,90 +363,32 @@ export const AiChartWorkbench = ({
     return () => window.clearTimeout(timer);
   }, [panelContext, prepared.table, specSession]);
 
-  useEffect(() => {
-    if (!frameworkSession) {
-      return;
-    }
-
-    const contextMatches =
-      (!frameworkSession.context && !panelContext) || isSamePanelContext(frameworkSession.context, panelContext);
-    if (!contextMatches) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      const result = evaluateFrameworkSpecDraft({
-        text: frameworkSession.text,
-        options: frameworkSession.baseOptions,
-        table: prepared.table,
-        size: COMPILE_SIZE,
-        context: frameworkSession.context,
-      });
-      setFrameworkEvaluation(result);
-      specDraftControlsRef.current.onStatusChange(result.status);
-      if (result.status === 'valid') {
-        specDraftControlsRef.current.onDraftChange(result.draft);
-      }
-    }, 300);
-
-    return () => window.clearTimeout(timer);
-  }, [frameworkSession, panelContext, prepared.table]);
-
   const selectView = (view: WorkbenchView) => () => setActiveView(view);
   const specIsDirty = Boolean(specSession);
-  const frameworkIsDirty = Boolean(frameworkSession);
   const specIsStale = Boolean(
     specSession && !((!specSession.context && !panelContext) || isSamePanelContext(specSession.context, panelContext))
   );
-  const frameworkIsStale = Boolean(
-    frameworkSession &&
-    !((!frameworkSession.context && !panelContext) || isSamePanelContext(frameworkSession.context, panelContext))
-  );
   const specStatus = specIsStale ? 'stale' : specEvaluation.status;
-  const frameworkStatus = frameworkIsStale ? 'stale' : frameworkEvaluation.status;
-  const activeEditorStatus = frameworkIsDirty ? frameworkStatus : specStatus;
+  const activeEditorStatus = specStatus;
   const displayedFlintSpec = specSession?.text ?? compiled.flintSpec;
   const lastValidAssembly = specEvaluation.status === 'valid' ? specEvaluation.assembled : undefined;
-  const displayedFrameworkSpec =
-    frameworkSession?.text ??
-    (lastValidAssembly ? JSON.stringify(lastValidAssembly.payload, null, 2) : compiled.frameworkSpec);
+  const displayedFrameworkSpec = lastValidAssembly
+    ? JSON.stringify(lastValidAssembly.payload, null, 2)
+    : compiled.frameworkSpec;
   const displayedChartType = lastValidAssembly?.input.chart_spec.chartType ?? compiled.chartType;
   const displayedWarnings = lastValidAssembly?.warnings ?? compiled.warnings;
   const displayedWarningCount = displayedWarnings.length;
-  const overrideWasIgnored = displayedWarnings.some((warning) => /Ignored .*UI Framework override/i.test(warning));
-  const specError = specEvaluation.status === 'invalid' ? specEvaluation.error : undefined;
-  const frameworkError = frameworkEvaluation.status === 'invalid' ? frameworkEvaluation.error : undefined;
-  const activeEditorError = frameworkIsDirty ? frameworkError : specError;
-  const hasFrameworkOverride = Boolean(effectiveOptions.frameworkOverrides?.[effectiveOptions.renderBackend]);
-  const frameworkInspectorStatus =
-    frameworkStatus === 'checking'
-      ? 'Checking…'
-      : frameworkStatus === 'invalid' && frameworkEvaluation.status === 'invalid'
-        ? frameworkEvaluation.error
-        : frameworkStatus === 'stale'
-          ? 'Stale: Panel query or fields changed'
-          : specIsDirty
-            ? 'Finish Flint Spec edits first'
-            : overrideWasIgnored
-              ? 'Stale override ignored'
-              : hasFrameworkOverride && !frameworkIsDirty
-                ? 'Saved override applied'
-                : 'Valid UI Framework Spec';
+  const activeEditorError = specEvaluation.status === 'invalid' ? specEvaluation.error : undefined;
   const showWorkbenchDraftActions = proposalOwner(draft, activeEditorStatus) === 'workbench';
   const draftStatusMessage = (() => {
     switch (activeEditorStatus) {
       case 'checking':
-        return `Validating ${frameworkIsDirty ? 'UI Framework Spec' : 'Flint Spec'}… Preview shows the last valid revision.`;
+        return `Validating Flint Spec… Preview shows the last valid revision.`;
       case 'invalid':
-        return `Invalid ${frameworkIsDirty ? 'UI Framework Spec' : 'Flint Spec'}: ${activeEditorError ?? 'Unknown validation error.'} Preview shows the last valid revision.`;
+        return `Invalid Flint Spec: ${activeEditorError ?? 'Unknown validation error.'} Preview shows the last valid revision.`;
       case 'stale':
         return 'The Panel query changed. Revalidate this Spec before Apply.';
       case 'valid':
-        if (frameworkIsDirty) {
-          return previewLabel === 'Preview ready'
-            ? 'Preview ready · UI Framework Spec changes are not applied.'
-            : 'UI Framework Spec is valid; building preview…';
-        }
         return previewLabel === 'Preview ready'
           ? 'Preview ready · Flint Spec changes are not applied.'
           : activeView === 'preview'
@@ -499,11 +408,9 @@ export const AiChartWorkbench = ({
   })();
 
   const discardEdits = () => {
-    specDraftControls.onDiscard(frameworkSession?.baseDraft ?? specSession?.baseDraft);
+    specDraftControls.onDiscard(specSession?.baseDraft);
     setSpecSession(undefined);
     setSpecEvaluation({ status: 'pristine' });
-    setFrameworkSession(undefined);
-    setFrameworkEvaluation({ status: 'pristine' });
   };
 
   const applyDraft = () => {
@@ -511,9 +418,6 @@ export const AiChartWorkbench = ({
   };
 
   const updateSpecText = (text: string) => {
-    if (frameworkIsDirty) {
-      return;
-    }
     if ((!specSession && text === displayedFlintSpec) || specSession?.text === text) {
       return;
     }
@@ -527,56 +431,20 @@ export const AiChartWorkbench = ({
     }));
   };
 
-  const updateFrameworkSpecText = (text: string) => {
-    if (specIsDirty) {
-      return;
-    }
-    if ((!frameworkSession && text === displayedFrameworkSpec) || frameworkSession?.text === text) {
-      return;
-    }
-    setFrameworkEvaluation({ status: 'checking' });
-    specDraftControls.onStatusChange('checking');
-    setFrameworkSession((current) => ({
-      text,
-      baseOptions: current?.baseOptions ?? effectiveOptions,
-      baseDraft: current?.baseDraft ?? draft,
-      context: current?.context ?? panelContext,
-    }));
-  };
-
-  const resetFrameworkOverride = () => {
-    const frameworkOverrides = clearFrameworkOverride(
-      effectiveOptions.frameworkOverrides,
-      effectiveOptions.renderBackend
-    );
-    const resetOptions = {
-      ...effectiveOptions,
-      frameworkOverrides,
-    };
-    const resetAssembly = assemblePanelChart(prepared.table, resetOptions, COMPILE_SIZE);
-    setFrameworkSession({
-      text: JSON.stringify(resetAssembly.payload, null, 2),
-      baseOptions: resetOptions,
-      baseDraft: draft,
-      context: panelContext,
-    });
-    setFrameworkEvaluation({ status: 'checking' });
-    specDraftControls.onStatusChange('checking');
-  };
-
-  const manualSettingsDisabled = specIsDirty || frameworkIsDirty;
+  const manualSettingsDisabled = specIsDirty;
 
   const updateManualSettings = (patch: ManualChartSettingsPatch) => {
     if (manualSettingsDisabled) {
       return;
     }
-    specDraftControls.onDraftChange(
-      createManualChartDraft({
-        options: effectiveOptions,
-        patch,
-        context: panelContext,
-      })
-    );
+    setSettingsError(undefined);
+    try {
+      specDraftControls.onDraftChange(
+        createManualChartDraft({ options: effectiveOptions, patch, context: panelContext })
+      );
+    } catch (cause) {
+      setSettingsError(cause instanceof Error ? cause.message : String(cause));
+    }
   };
 
   const changeRenderBackend = (renderBackend: RenderBackend) => {
@@ -587,51 +455,6 @@ export const AiChartWorkbench = ({
 
   return (
     <div className={styles.root}>
-      <header className={styles.header}>
-        <div className={styles.titleRow}>
-          <div className={styles.title}>Chart workbench</div>
-          <IconButton
-            name="info-circle"
-            size="sm"
-            type="button"
-            tooltip={`${querySummary}. Preview uses the actual Panel DataFrame with the ${effectiveOptions.renderBackend} renderer. Draft changes are not saved until Apply.`}
-            tooltipPlacement="bottom-start"
-          />
-        </div>
-        <div className={styles.headerActions}>
-          <div className={styles.frameworkSelect}>
-            <span className={styles.screenReaderOnly} id="flint-ui-framework-label">
-              UI framework
-            </span>
-            <Combobox
-              id="flint-ui-framework"
-              aria-labelledby="flint-ui-framework-label"
-              options={RENDER_BACKENDS}
-              value={effectiveOptions.renderBackend}
-              width="auto"
-              minWidth={14}
-              maxWidth={24}
-              disabled={manualSettingsDisabled}
-              onChange={(option) => changeRenderBackend(option.value)}
-            />
-          </div>
-          <ToolbarButton
-            icon="ai"
-            iconOnly={isChatOpen}
-            narrow
-            variant={isChatOpen ? 'active' : 'default'}
-            tooltip={isChatOpen ? 'Hide AI Chat' : 'Show AI Chat'}
-            aria-label={isChatOpen ? 'Hide AI Chat' : 'Show AI Chat'}
-            type="button"
-            aria-controls="flint-ai-chat-pane"
-            aria-expanded={isChatOpen}
-            onClick={onToggleChat}
-          >
-            AI Chat
-          </ToolbarButton>
-        </div>
-      </header>
-
       <TabsBar className={styles.tabs} role="tablist" aria-label="Chart workbench views">
         <Tab
           id="flint-workbench-preview-tab"
@@ -662,8 +485,6 @@ export const AiChartWorkbench = ({
         <Tab
           id="flint-workbench-framework-tab"
           label="UI Framework Spec"
-          icon={frameworkIsDirty ? 'circle' : undefined}
-          tooltip={frameworkIsDirty ? 'UI Framework Spec has unsaved edits' : undefined}
           active={activeView === 'framework'}
           aria-selected={activeView === 'framework'}
           aria-controls="flint-workbench-framework"
@@ -671,338 +492,276 @@ export const AiChartWorkbench = ({
         />
       </TabsBar>
 
-      {showWorkbenchDraftActions && (
-        <div className={styles.draftBar} aria-live="polite" data-testid="flint-spec-draft-bar">
-          <div className={styles.draftStatus}>{draftStatusMessage}</div>
-          <div className={styles.draftActions}>
-            <Button size="sm" type="button" variant="secondary" onClick={discardEdits}>
-              Discard edits
-            </Button>
-            <Button
-              size="sm"
-              type="button"
-              onClick={applyDraft}
-              disabled={!specDraftControls.canApply}
-              data-testid="flint-workbench-apply-draft"
-            >
-              Apply to panel
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <div
-        id="flint-workbench-preview"
-        className={`${styles.panel} ${styles.previewPanel}`}
-        role="tabpanel"
-        aria-labelledby="flint-workbench-preview-tab"
-        hidden={activeView !== 'preview'}
-      >
-        <div className={styles.previewStage}>
-          <AiChartLivePreview frames={frames} options={options} draft={draft} onStatusChange={onPreviewStatusChange} />
-        </div>
-      </div>
-
-      {activeView === 'settings' && (
-        <div
-          id="flint-workbench-settings"
-          className={`${styles.panel} ${styles.settingsPanel}`}
-          role="tabpanel"
-          aria-labelledby="flint-workbench-settings-tab"
-        >
-          <div className={styles.settingsContent}>
-            <div className={styles.settingsHeading}>Manual chart settings</div>
-            <div className={styles.settingsHelp}>
-              Changes create a preview draft. Review it in UI Preview, then Apply to panel.
-            </div>
-            <div className={styles.settingsGrid}>
-              <div className={styles.setting}>
-                <span id="flint-chart-type-label" className={styles.settingLabel}>
-                  Chart type
-                </span>
-                <Combobox
-                  id="flint-chart-type"
-                  aria-labelledby="flint-chart-type-label"
-                  options={chartTypeOptions}
-                  value={effectiveOptions.chartType}
-                  disabled={manualSettingsDisabled}
-                  onChange={(option) => updateManualSettings({ chartType: option.value })}
-                />
-              </div>
-              <div className={styles.setting}>
-                <span id="flint-x-field-label" className={styles.settingLabel}>
-                  X field
-                </span>
-                <Combobox
-                  id="flint-x-field"
-                  aria-labelledby="flint-x-field-label"
-                  options={fieldOptions}
-                  value={effectiveOptions.xField || AUTO_FIELD_VALUE}
-                  disabled={manualSettingsDisabled}
-                  onChange={(option) =>
-                    updateManualSettings({ xField: option.value === AUTO_FIELD_VALUE ? '' : option.value })
-                  }
-                />
-              </div>
-              <div className={styles.setting}>
-                <span id="flint-y-field-label" className={styles.settingLabel}>
-                  Y field
-                </span>
-                <Combobox
-                  id="flint-y-field"
-                  aria-labelledby="flint-y-field-label"
-                  options={fieldOptions}
-                  value={effectiveOptions.yField || AUTO_FIELD_VALUE}
-                  disabled={manualSettingsDisabled}
-                  onChange={(option) =>
-                    updateManualSettings({ yField: option.value === AUTO_FIELD_VALUE ? '' : option.value })
-                  }
-                />
-              </div>
-              <div className={styles.setting}>
-                <span id="flint-color-field-label" className={styles.settingLabel}>
-                  Color field
-                </span>
-                <Combobox
-                  id="flint-color-field"
-                  aria-labelledby="flint-color-field-label"
-                  options={fieldOptions}
-                  value={effectiveOptions.colorField || AUTO_FIELD_VALUE}
-                  disabled={manualSettingsDisabled}
-                  onChange={(option) =>
-                    updateManualSettings({ colorField: option.value === AUTO_FIELD_VALUE ? '' : option.value })
-                  }
-                />
-              </div>
-              {effectiveOptions.chartType === 'Waterfall Chart' && (
-                <div className={styles.setting}>
-                  <span id="flint-waterfall-totals-label" className={styles.settingLabel}>
-                    Waterfall totals
-                  </span>
-                  <Combobox<WaterfallTotalsMode>
-                    id="flint-waterfall-totals"
-                    aria-labelledby="flint-waterfall-totals-label"
-                    options={WATERFALL_TOTAL_OPTIONS}
-                    value={effectiveOptions.waterfallTotals}
-                    disabled={manualSettingsDisabled}
-                    onChange={(option) => updateManualSettings({ waterfallTotals: option.value })}
-                  />
+      <div className={styles.content}>
+        {(showWorkbenchDraftActions || notice || error || settingsError || previewError || draftIsStale) && (
+          <div className={styles.notifications}>
+            {showWorkbenchDraftActions && (
+              <div className={styles.draftBar} aria-live="polite" data-testid="flint-spec-draft-bar">
+                <div className={styles.draftStatus}>{draftStatusMessage}</div>
+                <div className={styles.draftActions}>
+                  <Button size="sm" type="button" variant="secondary" onClick={discardEdits}>
+                    Discard edits
+                  </Button>
+                  <Button
+                    size="sm"
+                    type="button"
+                    onClick={applyDraft}
+                    disabled={!specDraftControls.canApply}
+                    data-testid="flint-workbench-apply-draft"
+                  >
+                    Apply to panel
+                  </Button>
                 </div>
-              )}
-            </div>
-            {effectiveOptions.specJson.trim() && (
-              <div className={styles.settingsNotice}>
-                Changing Chart type or field mappings replaces the current custom Flint Spec in this draft.
               </div>
             )}
-          </div>
-        </div>
-      )}
 
-      {activeView === 'flint' && (
-        <div
-          id="flint-workbench-spec"
-          className={`${styles.panel} ${styles.specPanel}`}
-          role="tabpanel"
-          aria-labelledby="flint-workbench-spec-tab"
-        >
-          <aside className={styles.inspector} aria-label="Flint Spec inspector">
-            <div className={styles.inspectorTitle}>Semantic model</div>
-            <div className={styles.inspectorRow}>
-              <div className={styles.inspectorLabel}>Chart type</div>
-              <div className={styles.inspectorValue}>{displayedChartType ?? 'Unavailable'}</div>
-            </div>
-            <div className={styles.inspectorRow}>
-              <div className={styles.inspectorLabel}>Query fields</div>
-              <div className={styles.inspectorValue}>{prepared.table.fields.map((field) => field.name).join(', ')}</div>
-            </div>
-            <div className={styles.inspectorRow}>
-              <div className={styles.inspectorLabel}>Source</div>
-              <div className={styles.inspectorValue}>
-                {specIsDirty ? 'Manual draft' : draft ? `${draft.source ?? 'AI'} draft` : 'Current Panel'}
-              </div>
-            </div>
-            <div className={styles.inspectorRow}>
-              <div className={styles.inspectorLabel}>Validation</div>
-              <div
-                className={`${styles.inspectorValue} ${
-                  specStatus === 'invalid' || specStatus === 'stale' ? styles.invalid : styles.valid
-                }`}
+            {notice && (
+              <Alert
+                title="Chart workbench"
+                severity="info"
+                onRemove={onDismissNotice}
+                data-testid="flint-workbench-notice"
               >
-                {specStatus === 'checking'
-                  ? 'Checking…'
-                  : specStatus === 'invalid' && specEvaluation.status === 'invalid'
-                    ? specEvaluation.error
-                    : specStatus === 'stale'
-                      ? 'Stale: Panel query or fields changed'
-                      : 'Valid Flint Spec'}
-              </div>
-            </div>
-            <div className={styles.inspectorRow}>
-              <div className={styles.inspectorLabel}>Warnings</div>
-              <div className={styles.inspectorValue}>{displayedWarningCount ?? 0}</div>
-            </div>
-            {compiled.error && !specIsDirty && (
-              <Alert title="Current Flint Spec cannot compile" severity="error">
-                {compiled.error}
+                {notice}
               </Alert>
             )}
-            <div className={styles.inspectorActions}>
-              {specEvaluation.status === 'valid' && specSession && (
-                <Button
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                  onClick={() => updateSpecText(specEvaluation.normalizedText)}
-                >
-                  Format JSON
-                </Button>
-              )}
-              {specStatus === 'stale' && specSession && (
-                <Button
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    setSpecEvaluation({ status: 'checking' });
-                    specDraftControls.onStatusChange('checking');
-                    setSpecSession({ ...specSession, context: panelContext });
-                  }}
-                >
-                  Revalidate
-                </Button>
-              )}
-            </div>
-          </aside>
-          <div className={styles.editor}>
-            <CodeEditor
-              value={displayedFlintSpec}
-              language="json"
-              width="100%"
-              height="100%"
-              wordWrap
-              showMiniMap={false}
-              showLineNumbers
-              readOnly={frameworkIsDirty}
-              onChange={updateSpecText}
-              onSave={updateSpecText}
-              containerStyles={styles.codeEditor}
+            {(error || settingsError) && (
+              <Alert title="Chart workbench error" severity="error">
+                {error ?? settingsError}
+              </Alert>
+            )}
+            {previewError && (
+              <Alert title="Preview failed" severity="error">
+                {previewError}
+              </Alert>
+            )}
+            {draftIsStale && (
+              <Alert title="Draft is stale" severity="warning">
+                The Panel query, field schema or chart source changed. Revalidate these changes before Apply.
+              </Alert>
+            )}
+          </div>
+        )}
+
+        <div
+          id="flint-workbench-preview"
+          className={`${styles.panel} ${styles.previewPanel}`}
+          role="tabpanel"
+          aria-labelledby="flint-workbench-preview-tab"
+          hidden={activeView !== 'preview'}
+        >
+          <div className={styles.previewStage}>
+            <AiChartLivePreview
+              frames={frames}
+              options={options}
+              draft={draft}
+              onStatusChange={onPreviewStatusChange}
             />
           </div>
         </div>
-      )}
 
-      {activeView === 'framework' && (
-        <div
-          id="flint-workbench-framework"
-          className={`${styles.panel} ${styles.specPanel}`}
-          role="tabpanel"
-          aria-labelledby="flint-workbench-framework-tab"
-        >
-          {compiled.error && !lastValidAssembly ? (
-            <div className={styles.error}>
-              <Alert title="Framework Spec unavailable" severity="error">
-                {compiled.error}
-              </Alert>
+        {activeView === 'settings' && (
+          <div
+            id="flint-workbench-settings"
+            className={`${styles.panel} ${styles.settingsPanel}`}
+            role="tabpanel"
+            aria-labelledby="flint-workbench-settings-tab"
+          >
+            <div className={styles.settingsContent}>
+              <div className={styles.settingsHeading}>Manual chart settings</div>
+              <div className={styles.settingsHelp}>
+                Changes create a preview draft. Review it in UI Preview, then Apply to panel.
+              </div>
+              <div className={`${styles.setting} ${styles.rendererSetting}`}>
+                <label className={styles.settingLabel} id="flint-ui-framework-label" htmlFor="flint-ui-framework">
+                  Renderer
+                </label>
+                <Combobox
+                  id="flint-ui-framework"
+                  aria-labelledby="flint-ui-framework-label"
+                  options={RENDER_BACKENDS}
+                  value={effectiveOptions.renderBackend}
+                  disabled={manualSettingsDisabled}
+                  onChange={(option) => changeRenderBackend(option.value)}
+                />
+                <div className={styles.settingsHelp}>Applies to this chart across all views.</div>
+              </div>
+              <ChartSettings
+                state={toChartState(effectiveOptions)}
+                table={prepared.table}
+                disabled={manualSettingsDisabled}
+                onChange={updateManualSettings}
+              />
+              <div className={styles.settingsNotice}>
+                Settings edit the Flint source and preserve unrelated semantic configuration.
+              </div>
             </div>
-          ) : (
-            <>
-              <aside className={styles.inspector} aria-label="UI Framework Spec inspector">
-                <div className={styles.inspectorTitleRow}>
-                  <div className={styles.title}>Framework output</div>
-                  <IconButton
-                    name="info-circle"
+          </div>
+        )}
+
+        {activeView === 'flint' && (
+          <div
+            id="flint-workbench-spec"
+            className={`${styles.panel} ${styles.specPanel}`}
+            role="tabpanel"
+            aria-labelledby="flint-workbench-spec-tab"
+          >
+            <aside className={styles.inspector} aria-label="Flint Spec inspector">
+              <div className={styles.inspectorTitle}>Semantic model</div>
+              <div className={styles.inspectorRow}>
+                <div className={styles.inspectorLabel}>Chart type</div>
+                <div className={styles.inspectorValue}>{displayedChartType ?? 'Unavailable'}</div>
+              </div>
+              <div className={styles.inspectorRow}>
+                <div className={styles.inspectorLabel}>Query fields</div>
+                <div className={styles.inspectorValue}>
+                  {prepared.table.fields.map((field) => field.name).join(', ')}
+                </div>
+              </div>
+              <div className={styles.inspectorRow}>
+                <div className={styles.inspectorLabel}>Source</div>
+                <div className={styles.inspectorValue}>
+                  {specIsDirty ? 'Manual draft' : draft ? `${draft.source ?? 'AI'} draft` : 'Current Panel'}
+                </div>
+              </div>
+              <div className={styles.inspectorRow}>
+                <div className={styles.inspectorLabel}>Validation</div>
+                <div
+                  className={`${styles.inspectorValue} ${
+                    specStatus === 'invalid' || specStatus === 'stale' ? styles.invalid : styles.valid
+                  }`}
+                >
+                  {specStatus === 'checking'
+                    ? 'Checking…'
+                    : specStatus === 'invalid' && specEvaluation.status === 'invalid'
+                      ? specEvaluation.error
+                      : specStatus === 'stale'
+                        ? 'Stale: Panel query or fields changed'
+                        : 'Valid Flint Spec'}
+                </div>
+              </div>
+              <div className={styles.inspectorRow}>
+                <div className={styles.inspectorLabel}>Warnings</div>
+                <div className={styles.inspectorValue}>{displayedWarningCount ?? 0}</div>
+              </div>
+              {compiled.error && !specIsDirty && (
+                <Alert title="Current Flint Spec cannot compile" severity="error">
+                  {compiled.error}
+                </Alert>
+              )}
+              <div className={styles.inspectorActions}>
+                {specEvaluation.status === 'valid' && specSession && (
+                  <Button
                     size="sm"
                     type="button"
-                    aria-label="About Framework Override"
-                    tooltip="Generated from the validated Flint Spec. You can edit the full output; Apply stores only data-free display changes as a Framework Override."
-                    tooltipPlacement="bottom-start"
+                    variant="secondary"
+                    onClick={() => updateSpecText(specEvaluation.normalizedText)}
+                  >
+                    Format JSON
+                  </Button>
+                )}
+                {specStatus === 'stale' && specSession && (
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setSpecEvaluation({ status: 'checking' });
+                      specDraftControls.onStatusChange('checking');
+                      setSpecSession({ ...specSession, context: panelContext });
+                    }}
+                  >
+                    Revalidate
+                  </Button>
+                )}
+              </div>
+            </aside>
+            <div className={styles.editor}>
+              <CodeEditor
+                value={displayedFlintSpec}
+                language="json"
+                width="100%"
+                height="100%"
+                wordWrap
+                showMiniMap={false}
+                showLineNumbers
+                onChange={updateSpecText}
+                onSave={updateSpecText}
+                containerStyles={styles.codeEditor}
+              />
+            </div>
+          </div>
+        )}
+
+        {activeView === 'framework' && (
+          <div
+            id="flint-workbench-framework"
+            className={`${styles.panel} ${styles.specPanel}`}
+            role="tabpanel"
+            aria-labelledby="flint-workbench-framework-tab"
+          >
+            {compiled.error && !lastValidAssembly ? (
+              <div className={styles.error}>
+                <Alert title="Framework Spec unavailable" severity="error">
+                  {compiled.error}
+                </Alert>
+              </div>
+            ) : (
+              <>
+                <aside className={styles.inspector} aria-label="UI Framework Spec inspector">
+                  <div className={styles.inspectorTitleRow}>
+                    <div className={styles.title}>Framework output</div>
+                    <IconButton
+                      name="info-circle"
+                      size="sm"
+                      type="button"
+                      aria-label="About compiled framework output"
+                      tooltip="Read-only output compiled from the Flint source. Edit Flint Spec or Chart Settings to change the chart."
+                      tooltipPlacement="bottom-start"
+                    />
+                  </div>
+                  <div className={styles.inspectorRow}>
+                    <div className={styles.inspectorLabel}>Renderer</div>
+                    <div className={styles.inspectorValue}>{lastValidAssembly?.backend ?? compiled.backend}</div>
+                  </div>
+                  <div className={styles.inspectorRow}>
+                    <div className={styles.inspectorLabel}>Status</div>
+                    <div className={styles.inspectorValue}>Valid UI Framework Spec · Read-only compiled output</div>
+                  </div>
+                  {Boolean(displayedWarningCount) && (
+                    <div className={styles.inspectorRow}>
+                      <div className={styles.inspectorLabel}>Warnings</div>
+                      <div className={`${styles.inspectorValue} ${styles.warningValue}`}>
+                        <span>{displayedWarningCount}</span>
+                        <IconButton
+                          name="info-circle"
+                          size="sm"
+                          type="button"
+                          tooltip={displayedWarnings.join(' ')}
+                          tooltipPlacement="bottom-start"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </aside>
+                <div className={styles.editor}>
+                  <CodeEditor
+                    value={displayedFrameworkSpec}
+                    language="json"
+                    width="100%"
+                    height="100%"
+                    readOnly
+                    wordWrap
+                    showMiniMap={false}
+                    showLineNumbers
+                    containerStyles={styles.codeEditor}
                   />
                 </div>
-                <div className={styles.inspectorRow}>
-                  <div className={styles.inspectorLabel}>Renderer</div>
-                  <div className={styles.inspectorValue}>{lastValidAssembly?.backend ?? compiled.backend}</div>
-                </div>
-                <div className={styles.inspectorRow}>
-                  <div className={styles.inspectorLabel}>Status</div>
-                  <div
-                    className={`${styles.inspectorValue} ${
-                      frameworkStatus === 'invalid' || frameworkStatus === 'stale'
-                        ? styles.invalid
-                        : overrideWasIgnored
-                          ? styles.warning
-                          : styles.valid
-                    }`}
-                  >
-                    {frameworkInspectorStatus}
-                  </div>
-                </div>
-                {Boolean(displayedWarningCount) && (
-                  <div className={styles.inspectorRow}>
-                    <div className={styles.inspectorLabel}>Warnings</div>
-                    <div className={`${styles.inspectorValue} ${styles.warningValue}`}>
-                      <span>{displayedWarningCount}</span>
-                      <IconButton
-                        name="info-circle"
-                        size="sm"
-                        type="button"
-                        tooltip={displayedWarnings.join(' ')}
-                        tooltipPlacement="bottom-start"
-                      />
-                    </div>
-                  </div>
-                )}
-                <div className={styles.inspectorActions}>
-                  {frameworkEvaluation.status === 'valid' && frameworkSession && (
-                    <Button
-                      size="sm"
-                      type="button"
-                      variant="secondary"
-                      onClick={() => updateFrameworkSpecText(frameworkEvaluation.normalizedText)}
-                    >
-                      Format JSON
-                    </Button>
-                  )}
-                  {frameworkStatus === 'stale' && frameworkSession && (
-                    <Button
-                      size="sm"
-                      type="button"
-                      variant="secondary"
-                      onClick={() => {
-                        setFrameworkEvaluation({ status: 'checking' });
-                        specDraftControls.onStatusChange('checking');
-                        setFrameworkSession({ ...frameworkSession, context: panelContext });
-                      }}
-                    >
-                      Revalidate
-                    </Button>
-                  )}
-                  {hasFrameworkOverride && !specIsDirty && (
-                    <Button size="sm" type="button" variant="secondary" onClick={resetFrameworkOverride}>
-                      Reset override
-                    </Button>
-                  )}
-                </div>
-              </aside>
-              <div className={styles.editor}>
-                <CodeEditor
-                  value={displayedFrameworkSpec}
-                  language="json"
-                  width="100%"
-                  height="100%"
-                  readOnly={specIsDirty}
-                  wordWrap
-                  showMiniMap={false}
-                  showLineNumbers
-                  onChange={updateFrameworkSpecText}
-                  onSave={updateFrameworkSpecText}
-                  containerStyles={styles.codeEditor}
-                />
-              </div>
-            </>
-          )}
-        </div>
-      )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -9,6 +9,7 @@ import {
 } from 'flint-chart';
 
 import type { RenderBackend } from './backends';
+import { WATERFALL_TOTALS_MODES } from '../types';
 
 const PANEL_CHART_TYPE_NAMES = [
   'Line Chart',
@@ -35,6 +36,10 @@ export interface FlintChartCatalogEntry {
 export interface FlintChartPropertyCatalogEntry {
   key: string;
   type: ChartPropertyDef['type'];
+  label?: string;
+  defaultValue?: unknown;
+  step?: number;
+  optionLabels?: string[];
   min?: number;
   max?: number;
   options?: unknown[];
@@ -56,13 +61,23 @@ const REQUIRED_CHANNELS: Record<(typeof PANEL_CHART_TYPE_NAMES)[number], string[
 };
 
 function propertyCatalog(definition: ChartPropertyDef): FlintChartPropertyCatalogEntry {
+  const common = {
+    key: definition.key,
+    type: definition.type,
+    label: definition.label,
+    defaultValue: definition.defaultValue,
+  };
   switch (definition.type) {
     case 'continuous':
-      return { key: definition.key, type: definition.type, min: definition.min, max: definition.max };
+      return { ...common, min: definition.min, max: definition.max, step: definition.step };
     case 'discrete':
-      return { key: definition.key, type: definition.type, options: definition.options.map((option) => option.value) };
+      return {
+        ...common,
+        options: definition.options.map((option) => option.value),
+        optionLabels: definition.options.map((option) => option.label),
+      };
     case 'binary':
-      return { key: definition.key, type: definition.type };
+      return common;
   }
 }
 
@@ -91,7 +106,22 @@ export function chartCatalogForBackend(backend: RenderBackend): FlintChartCatalo
             chartType,
             channels: [...definition.channels],
             requiredChannels: REQUIRED_CHANNELS[chartType].filter((channel) => definition.channels.includes(channel)),
-            properties: (definition.properties ?? []).map(propertyCatalog),
+            properties: [
+              ...(definition.properties ?? []).map(propertyCatalog),
+              ...(chartType === 'Waterfall Chart' &&
+              !definition.properties?.some((property) => property.key === 'totals')
+                ? [
+                    {
+                      key: 'totals',
+                      label: 'Waterfall totals',
+                      type: 'discrete' as const,
+                      defaultValue: 'auto',
+                      options: [...WATERFALL_TOTALS_MODES],
+                      optionLabels: ['Auto', 'None', 'First only', 'Last only', 'First and last'],
+                    },
+                  ]
+                : []),
+            ],
           },
         ]
       : [];

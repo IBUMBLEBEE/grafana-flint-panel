@@ -1,57 +1,33 @@
 # Documentation
 
-This directory contains durable product contracts, requirements, integration
-guides, and active issue records. The implementation and automated tests are
-the source of truth for code-level behavior.
+Public contracts in this directory travel with a clean checkout. Runtime source
+and automated tests remain authoritative for accepted chart input and behavior.
 
-## Start here
+| Document                                                             | Purpose                                                                |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [Project README](../README.md)                                       | Setup, workflow and feature overview                                   |
+| [Project status](project-status.md)                                  | Maturity, limitations and promotion criteria                           |
+| [Product roadmap](product-roadmap.md)                                | Product direction                                                      |
+| [Agent guide](agent-flint-grafana.md)                                | Source authoring and safe Grafana MCP writes                           |
+| [Panel options schema](schemas/flint-panel-options.schema.json)      | Machine-readable persisted-source shape                                |
+| [Dashboard creation](templates/dashboard-create-payload.json)        | Fresh classic dashboard payload; replace UID and datasource before use |
+| [Panel append operations](templates/patch-add-panel.operations.json) | Existing classic dashboard append payload                              |
+| [PromQL Line Panel](templates/panel-line-promql.json)                | Auto field inference with a real Prometheus UID to be supplied         |
+| [TestData Bar Panel](templates/panel-bar-table.json)                 | Explicit region/revenue source bindings                                |
+| [TestData Pie Panel](templates/panel-pie-flint-input.json)           | Explicit color/size source bindings                                    |
 
-| Document                                                        | Purpose                                                            |
-| --------------------------------------------------------------- | ------------------------------------------------------------------ |
-| [Project README](../README.md)                                  | User-facing setup, workflow, and feature overview                  |
-| [Project status](project-status.md)                             | Maturity label, intended use, limitations, and promotion criteria  |
-| [Domain context](../CONTEXT.md)                                 | Shared terminology for conversations, proposals, and Panel context |
-| [Product roadmap](product-roadmap.md)                           | Current product shape and future direction                         |
-| [Agent guide](agent-flint-grafana.md)                           | Flint options contract and Grafana MCP write workflow              |
-| [Panel options schema](schemas/flint-panel-options.schema.json) | Machine-readable persisted-options contract                        |
+Run `npm run check:flint-contract` after changing the public schema, examples or
+links. CI runs the same read-only check.
 
-## Requirements
+Local requirement drafts, research notes, MCP configuration and implementation
+plans are intentionally ignored by Git. They are optional working material, not
+required by this contract or by a fresh checkout. Publish a selected durable
+contract explicitly when it is ready; keep private notes and credentials local.
 
-| Requirement                                                                                      | Status                                                                       |
-| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| [001 — AI provider compatibility](requirements/001-ai-provider-compatibility.md)                 | Active integration contract; provider implementation is installed separately |
-| [002 — Chart proposal validation](requirements/002-flint-chart-proposal-validation.md)           | Implemented                                                                  |
-| [003 — Panel query-context binding](requirements/003-panel-datasource-context-binding.md)        | Implemented                                                                  |
-| [004 — Grafana MCP orchestration](requirements/004-grafana-flint-mcp-orchestration.md)           | Planned; the agent contract and examples are available                       |
-| [005 — Temporary multi-turn conversation](requirements/005-ai-workspace-conversation-history.md) | Implemented                                                                  |
-| [006 — UI framework overrides](requirements/006-ui-framework-overrides.md)                       | Implemented                                                                  |
+## Chart Settings JSON validation
 
-## MCP integration
+Panel-local validation runs before source normalization and before Flint compilation. Manual controls and Flint Spec edits share this path; invalid drafts keep the last valid preview and block Apply. Errors identify paths such as `options.addTooltips` or `chart_spec.encodings.y[1]`.
 
-- [Grafana MCP agent contract](agent-flint-grafana.md)
-- [Grafana MCP panel-context research](grafana-mcp-panel-context-research.md)
-- [Flint MCP integration research](flint-mcp-integration-research.md)
-- [Example MCP configuration](mcp-grafana.example.json)
-- [Dashboard and Panel payload templates](templates/)
+The source contract checks allowed properties, encoding modifiers, unique measure fields, option types/ranges, positive dimensions and semantic annotations. Query-aware validation checks field names, numeric measure arrays, backend chart/channel/property support and required bindings. Theme IDs come from the installed Flint catalog; supported presets remain inactive on backends other than Vega-Lite. Data stays in Grafana queries and canvas dimensions come from the host. Legacy migrations can remove old canvas dimensions; newly edited JSON receives an error instead of silently losing them.
 
-The research notes support future MCP orchestration. They are not runtime
-dependencies of the Panel.
-
-## Decisions and active issues
-
-- [ADR 0001](adr/0001-ai-workspace-is-a-separate-grafana-app-domain.md)
-  records the rejected durable AI Workspace direction. It is intentionally
-  retained as a deprecated decision record.
-- [Vega-Lite grouped-bar compatibility issue](issues/vega-lite-grouped-bar-static-series.md)
-  and its [upstream handoff](issues/vega-lite-grouped-bar-upstream-pr.md) remain
-  until the upstream fix is published and the local adapter can be removed.
-
-## Maintenance policy
-
-- Requirements describe durable behavior and acceptance boundaries.
-- ADRs record consequential decisions, including rejected directions.
-- Research notes remain only while they support an active or planned decision.
-- Implementation plans are working documents. Once completed, merge lasting
-  constraints into requirements or ADRs and remove the plan.
-- Do not duplicate source-level design details that are already enforced by
-  focused tests.
+`src/flint/sourceValidation.ts` defines structural checks; the persisted-options JSON Schema is tested against representative valid and invalid sources. When changing Chart Settings or upgrading Flint, keep these aligned with the installed library's types and runtime chart catalog. This path uses no AI datasource request or capability endpoint.

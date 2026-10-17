@@ -1,9 +1,21 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { css } from '@emotion/css';
 import { GrafanaTheme2, StandardEditorProps } from '@grafana/data';
-import { Alert, Button, IconButton, Modal, Tooltip, useStyles2 } from '@grafana/ui';
+import { Alert, Button, IconButton, Modal, ToolbarButton, Tooltip, useStyles2 } from '@grafana/ui';
+import { config } from '@grafana/runtime';
 
 import { buildDataHint } from '../ai/dataHint';
+import {
+  chartHistoryContext,
+  chartHistoryKey,
+  isRestoreRequest,
+  loadChartHistory,
+  prepareChartRestore,
+  recordChartApplication,
+  saveChartHistory,
+  type ChartRevision,
+} from '../ai/chartHistory';
+import { buildAiDiagnosticReport, createAiDiagnostics, downloadAiDiagnostics } from '../ai/diagnostics';
 import { generateFlintOptionsFromAi } from '../ai/generateOptions';
 import {
   buildPanelContextSnapshot,
@@ -13,7 +25,8 @@ import {
   subscribePanelQueryContext,
 } from '../ai/panelContext';
 import { getLocalStorage, loadAiProviderPreference, saveAiProviderPreference } from '../ai/providerPreference';
-import { aiProviderClient, listAiProviders } from '../ai/providerClient';
+import { aiProviderClient, listAiProviders, type ProposalPlan } from '../ai/providerClient';
+import { planProposalFromAi, proposalChatContext } from '../ai/proposalPlan';
 import {
   clearTemporaryChat,
   createTemporaryChatMessage,
@@ -28,13 +41,11 @@ import { proposalOwner, type SpecEditorStatus } from '../ai/proposalOwnership';
 import {
   captureVizSnapshot,
   snapshotFingerprint,
-  snapshotToPending,
   snapshotWithDraft,
   type FlintVizSnapshot,
 } from '../flint/visualizationRevision';
 import { RENDER_BACKENDS } from '../flint/backends';
-import { clearFrameworkOverride } from '../flint/frameworkOverride';
-import { preparePanelData } from '../flint/preparePanelData';
+import { chartSettings, toChartState } from '../flint/chartState';
 import {
   defaultAiConfig,
   defaultFlintOptions,
@@ -45,12 +56,6 @@ import {
 } from '../types';
 import { AiChartWorkbench } from './AiChartWorkbench';
 import { GrafanaAssistantChat, type AssistantBusyAction } from './GrafanaAssistantChat';
-
-interface UndoState {
-  before: FlintVizSnapshot;
-  appliedFingerprint: string;
-  context: ReturnType<typeof buildPanelContextSnapshot>;
-}
 
 type PreviewState = { status: 'checking' | 'ready' | 'error'; error?: string };
 
@@ -96,10 +101,16 @@ const getStyles = (theme: GrafanaTheme2) => ({
     }
   `,
   modalTitle: css`
+    flex: 1 1 auto;
+    width: calc(100% - 32px);
     display: flex;
     align-items: center;
     gap: ${theme.spacing(0.5)};
     min-width: 0;
+  `,
+  chatToggle: css`
+    margin-left: auto;
+    margin-right: ${theme.spacing(2)};
   `,
   modalContent: css`
     height: calc(100% - 50px);
@@ -203,6 +214,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
   paneTitle: css`
     font-weight: ${theme.typography.fontWeightMedium};
   `,
+  modeControls: css`
+    flex: 0 0 auto;
+    padding: ${theme.spacing(1, 2)};
+  `,
   paneTitleRow: css`
     display: flex;
     align-items: center;
@@ -215,6 +230,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   paneHeaderActions: css`
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     align-items: center;
     gap: ${theme.spacing(0.5)};
   `,
@@ -267,7 +284,6 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
   const ai = useMemo(() => sanitizeAiConfig(value ?? defaultAiConfig), [value]);
   const frames = useMemo(() => context.data ?? [], [context.data]);
   const hint = useMemo(() => buildDataHint(frames), [frames]);
-  const prepared = useMemo(() => preparePanelData(frames), [frames]);
   const providers = useMemo(() => {
     try {
       return listAiProviders();
@@ -290,13 +306,18 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
   const [messages, setMessages] = useState<TemporaryChatMessage[]>([]);
   const [busy, setBusy] = useState<AssistantBusyAction>();
   const [error, setError] = useState<string>();
+  const diagnostics = useMemo(() => createAiDiagnostics(aiProviderClient), []);
   const [notice, setNotice] = useState<string>();
+  const [workbenchNotice, setWorkbenchNotice] = useState<string>();
+  const [workbenchError, setWorkbenchError] = useState<string>();
   const [draft, setDraft] = useState<FlintPendingViz | undefined>(ai.draft);
   const [preview, setPreview] = useState<PreviewState>({ status: ai.draft ? 'checking' : 'ready' });
-  const [undo, setUndo] = useState<UndoState>();
+  const [history, setHistory] = useState<ChartRevision[]>([]);
+  const [restoreConversation, setRestoreConversation] = useState(false);
   const [savedPanelContext, setSavedPanelContext] = useState<ReturnType<typeof buildPanelContextSnapshot>>();
   const [previewPanePercent, setPreviewPanePercent] = useState(DEFAULT_PREVIEW_PANE_PERCENT);
-  const [isChatOpen, setChatOpen] = useState(true);
+  const [isChatOpen, setChatOpen] = useState(providers.length > 0);
+  const [proposalPlan, setProposalPlan] = useState<ProposalPlan>();
   const [specEditorStatus, setSpecEditorStatus] = useState<SpecEditorStatus>('pristine');
   const [specEditorResetVersion, setSpecEditorResetVersion] = useState(0);
   const [preferredProviderUid, setPreferredProviderUid] = useState(() =>
@@ -304,12 +325,19 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
   );
   const [, setPanelContextVersion] = useState(0);
   const abortRef = useRef<AbortController | undefined>(undefined);
+  const sourceEditRevisionRef = useRef(0);
+  const latestChartRef = useRef({
+    committed: '',
+    effective: '',
+    panelContext: undefined as ReturnType<typeof buildPanelContextSnapshot>,
+  });
   const generatedPromptRef = useRef(ai.lastPrompt);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const selectedRenderBackend =
     draft?.renderBackend ?? context.options?.renderBackend ?? defaultFlintOptions.renderBackend;
   const committedRenderBackend = context.options?.renderBackend || defaultFlintOptions.renderBackend;
-  const committedChartType = context.options?.chartType || defaultFlintOptions.chartType;
+  const committedChartType = chartSettings(toChartState(context.options)).chartType;
+  const proposalSettings = draft ? chartSettings(toChartState(draft)) : undefined;
   const committedBackendLabel =
     RENDER_BACKENDS.find((item) => item.value === committedRenderBackend)?.label.replace(' (default)', '') ??
     committedRenderBackend;
@@ -338,13 +366,45 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
   const panelContext = mergePanelContextSnapshots(savedPanelContext, runtimePanelContext);
   const storage = getSessionStorage();
   const storageKey = temporaryChatStorageKey(panelContext);
+  const historyKey = chartHistoryKey(panelContext);
   const selectedProviderUid = preferredProviderUid ?? ai.providerUid;
   const schemaFingerprint = panelContext?.schemaFingerprint ?? 'unbound';
-  const draftIsStale = Boolean(draft && !isSamePanelContext(draft.context, panelContext));
+  const committedFingerprint = snapshotFingerprint(captureVizSnapshot(context.options ?? defaultFlintOptions));
+  const effectiveFingerprint = snapshotFingerprint(
+    draft
+      ? snapshotWithDraft(context.options ?? defaultFlintOptions, draft)
+      : captureVizSnapshot(context.options ?? defaultFlintOptions)
+  );
+  React.useLayoutEffect(() => {
+    latestChartRef.current = { committed: committedFingerprint, effective: effectiveFingerprint, panelContext };
+  });
+  const draftIsStale = Boolean(
+    draft &&
+    (!isSamePanelContext(draft.context, panelContext) ||
+      (draft.baseFingerprint !== undefined && draft.baseFingerprint !== committedFingerprint))
+  );
   const specEditorBlocksApply =
     specEditorStatus === 'checking' || specEditorStatus === 'invalid' || specEditorStatus === 'stale';
   const currentProposalOwner = proposalOwner(draft, specEditorStatus);
   const canApplyDraft = Boolean(draft && !draftIsStale && preview.status === 'ready' && !specEditorBlocksApply);
+  const restoreContext = chartHistoryContext(
+    history,
+    captureVizSnapshot(context.options ?? defaultFlintOptions),
+    panelContext
+  );
+
+  React.useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (active) {
+        setHistory(loadChartHistory(storage, historyKey));
+        setRestoreConversation(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [storage, historyKey]);
 
   React.useEffect(() => {
     let active = true;
@@ -371,12 +431,15 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
   );
 
   React.useEffect(() => {
-    if (!notice) {
+    if (!notice && !workbenchNotice) {
       return;
     }
-    const timer = window.setTimeout(() => setNotice(undefined), 4000);
+    const timer = window.setTimeout(() => {
+      setNotice(undefined);
+      setWorkbenchNotice(undefined);
+    }, 4000);
     return () => window.clearTimeout(timer);
-  }, [notice]);
+  }, [notice, workbenchNotice]);
 
   const updatePreview = useCallback((status: PreviewState['status'], previewError?: string) => {
     setPreview((current) =>
@@ -393,6 +456,44 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
   const appendMessage = (role: 'user' | 'assistant', content: string, base = messages) => {
     return commitMessages([...base, createTemporaryChatMessage(role, content)]);
   };
+
+  React.useEffect(() => {
+    const head = history.at(-1);
+    if (
+      !head ||
+      head.confirmed !== false ||
+      committedFingerprint !== snapshotFingerprint(head.snapshot) ||
+      !isSamePanelContext(head.context, panelContext)
+    ) {
+      return;
+    }
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) {
+        return;
+      }
+      const next = history.map((revision) => (revision.id === head.id ? { ...revision, confirmed: true } : revision));
+      setHistory(next);
+      saveChartHistory(storage, historyKey, next);
+      if (head.notificationTarget === 'workbench') {
+        setNotice(undefined);
+        setWorkbenchNotice('Applied the changes to Panel options. Dashboard changes still require Save.');
+      } else {
+        setWorkbenchNotice(undefined);
+        appendMessage(
+          'assistant',
+          `${head.action === 'restored' ? 'Restored' : 'Applied'} ${head.label} to Panel options. Dashboard changes still require Save.`,
+          messages
+        );
+        setNotice('Applied the proposal to Panel options.');
+      }
+    });
+    return () => {
+      active = false;
+    };
+    // The current chat is captured when the matching committed revision is observed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committedFingerprint, history, historyKey, storage, panelContext]);
 
   const cancelRequest = () => {
     abortRef.current?.abort();
@@ -421,18 +522,59 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
       return;
     }
     setBusy('chat');
+    setProposalPlan(undefined);
     setError(undefined);
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const response = await aiProviderClient.chat(
+      if (isRestoreRequest(content) || restoreConversation) {
+        setRestoreConversation(true);
+        const baseline = { ...latestChartRef.current, revision: sourceEditRevisionRef.current };
+        const plan = await planProposalFromAi({
+          providerUid: selectedProviderUid!,
+          frames,
+          currentChartState: captureVizSnapshot(context.options ?? defaultFlintOptions),
+          conversation: providerConversation(next),
+          chartHistory: restoreContext,
+          signal: controller.signal,
+          client: diagnostics.client,
+        });
+        if (controller.signal.aborted || abortRef.current !== controller) {
+          return;
+        }
+        if (
+          baseline.committed !== latestChartRef.current.committed ||
+          baseline.effective !== latestChartRef.current.effective ||
+          baseline.revision !== sourceEditRevisionRef.current ||
+          !isSamePanelContext(baseline.panelContext, latestChartRef.current.panelContext)
+        ) {
+          throw new Error('The chart or Panel query changed while selecting a restore. Request it again.');
+        }
+        setProposalPlan(plan);
+        if (plan.mode === 'restore') {
+          stageRestore(plan.restoreRevisionId!, next);
+        } else if (plan.mode === 'clarify') {
+          appendMessage('assistant', plan.question, next);
+        } else {
+          setRestoreConversation(false);
+          appendMessage(
+            'assistant',
+            isRestoreRequest(content)
+              ? (restoreContext.unavailableReason ??
+                  'Choose a saved version from Chart history to prepare an exact restore preview.')
+              : `${plan.summary} Choose Generate proposal to review this new change.`,
+            next
+          );
+        }
+        return;
+      }
+      const response = await diagnostics.client.chat(
         selectedProviderUid!,
         {
           messages: providerConversation(next),
           panelContext: {
-            fields: prepared.table.fields.map((field) => ({ name: field.name, type: String(field.type) })),
-            dataHint: hint.summary,
-            renderBackend: selectedRenderBackend,
+            ...proposalChatContext(frames, captureVizSnapshot(context.options ?? defaultFlintOptions)),
+            chartHistory: restoreContext,
           },
         },
         controller.signal
@@ -451,24 +593,83 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
   };
 
   const stageDraft = (nextDraft: FlintPendingViz) => {
+    if (nextDraft.source === 'manual') {
+      setProposalPlan(undefined);
+    }
+    sourceEditRevisionRef.current++;
     setSpecEditorResetVersion((version) => version + 1);
     setSpecEditorStatus('pristine');
-    setDraft(nextDraft);
+    setDraft({
+      ...toChartState(nextDraft),
+      context: nextDraft.context,
+      rationale: nextDraft.rationale,
+      source: nextDraft.source,
+      ...(nextDraft.restoreRevisionId ? { restoreRevisionId: nextDraft.restoreRevisionId } : {}),
+      ...(nextDraft.baseFingerprint !== undefined ? { baseFingerprint: nextDraft.baseFingerprint } : {}),
+    });
     setPreview({ status: 'checking' });
     setError(undefined);
   };
 
+  const stageRestore = (revisionId: string, base = messages) => {
+    const restored = prepareChartRestore(
+      history,
+      revisionId,
+      captureVizSnapshot(context.options ?? defaultFlintOptions),
+      panelContext
+    );
+    stageDraft(restored);
+    setProposalPlan((current) =>
+      current?.mode === 'restore' && current.restoreRevisionId === revisionId
+        ? current
+        : { mode: 'restore', summary: restored.rationale, question: '', restoreRevisionId: revisionId }
+    );
+    setRestoreConversation(false);
+    appendMessage(
+      'assistant',
+      `${restored.rationale} Preparing the exact saved snapshot for preview. Review it, then click Restore this version.`,
+      base
+    );
+  };
+
   const stageManualSpecDraft = (nextDraft: FlintPendingViz) => {
-    setDraft(nextDraft);
+    setWorkbenchError(undefined);
+    setProposalPlan(undefined);
+    sourceEditRevisionRef.current++;
+    setDraft({
+      ...toChartState(nextDraft),
+      context: nextDraft.context,
+      rationale: nextDraft.rationale,
+      source: nextDraft.source,
+      ...((nextDraft.baseFingerprint ?? draft?.baseFingerprint) !== undefined
+        ? { baseFingerprint: nextDraft.baseFingerprint ?? draft?.baseFingerprint }
+        : {}),
+    });
     setError(undefined);
   };
 
   const discardDraft = (restoreDraft?: FlintPendingViz) => {
+    const manual = currentProposalOwner === 'workbench';
+    setProposalPlan(undefined);
+    sourceEditRevisionRef.current++;
     setSpecEditorResetVersion((version) => version + 1);
     setSpecEditorStatus('pristine');
     setDraft(restoreDraft);
     setPreview({ status: restoreDraft ? 'checking' : 'ready' });
-    setNotice(restoreDraft ? 'Discarded manual edits and restored the previous proposal.' : 'Discarded the proposal.');
+    setError(undefined);
+    setWorkbenchError(undefined);
+    const message = restoreDraft
+      ? 'Discarded manual edits and restored the previous proposal.'
+      : manual
+        ? 'Discarded manual changes.'
+        : 'Discarded the proposal.';
+    if (manual) {
+      setNotice(undefined);
+      setWorkbenchNotice(message);
+    } else {
+      setWorkbenchNotice(undefined);
+      setNotice(message);
+    }
   };
 
   const generateChart = async () => {
@@ -491,28 +692,76 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
       setError('Wait for Grafana to resolve every Panel query datasource before generating a chart.');
       return;
     }
-    generatedPromptRef.current = prompt;
+    const baseline = draft
+      ? snapshotWithDraft(context.options ?? defaultFlintOptions, draft)
+      : captureVizSnapshot(context.options ?? defaultFlintOptions);
+    const generationBaseline = { ...latestChartRef.current, revision: sourceEditRevisionRef.current };
     setBusy('generate');
     setError(undefined);
     const controller = new AbortController();
     abortRef.current = controller;
     try {
+      const plan = await planProposalFromAi({
+        providerUid: selectedProviderUid!,
+        frames,
+        currentChartState: baseline,
+        conversation: providerConversation(messages),
+        signal: controller.signal,
+        client: diagnostics.client,
+        chartHistory: restoreContext,
+      });
+      if (controller.signal.aborted || abortRef.current !== controller) {
+        return;
+      }
+      if (
+        generationBaseline.committed !== latestChartRef.current.committed ||
+        generationBaseline.effective !== latestChartRef.current.effective ||
+        generationBaseline.revision !== sourceEditRevisionRef.current ||
+        !isSamePanelContext(generationBaseline.panelContext, latestChartRef.current.panelContext)
+      ) {
+        throw new Error('The chart or Panel query changed while AI was planning this proposal. Generate again.');
+      }
+      setProposalPlan(plan);
+      if (plan.mode === 'clarify') {
+        appendMessage('assistant', plan.question, messages);
+        return;
+      }
+      if (plan.mode === 'restore') {
+        stageRestore(plan.restoreRevisionId!);
+        return;
+      }
+      if (isRestoreRequest(prompt)) {
+        throw new Error(
+          restoreContext.unavailableReason ??
+            'An exact restore must select a saved version. Choose a version from Chart history.'
+        );
+      }
       const generated = await generateFlintOptionsFromAi({
         providerUid: selectedProviderUid!,
         frames,
-        userPrompt: prompt,
+        userPrompt: plan.summary,
         renderBackend: selectedRenderBackend,
+        generationMode: plan.mode,
+        currentChartState: baseline,
         conversation: providerConversation(messages),
         signal: controller.signal,
+        client: diagnostics.client,
       });
+      if (controller.signal.aborted || abortRef.current !== controller) {
+        return;
+      }
+      if (
+        generationBaseline.committed !== latestChartRef.current.committed ||
+        generationBaseline.effective !== latestChartRef.current.effective ||
+        generationBaseline.revision !== sourceEditRevisionRef.current ||
+        !isSamePanelContext(generationBaseline.panelContext, latestChartRef.current.panelContext)
+      ) {
+        throw new Error('This proposal is stale because the chart source or Panel query changed during generation.');
+      }
+      generatedPromptRef.current = prompt;
       stageDraft({
-        renderBackend: selectedRenderBackend,
-        chartType: generated.chartType,
-        xField: generated.xField,
-        yField: generated.yField,
-        colorField: generated.colorField,
-        specJson: generated.specJson,
-        frameworkOverrides: clearFrameworkOverride(context.options?.frameworkOverrides, selectedRenderBackend),
+        ...generated,
+        baseFingerprint: generationBaseline.committed,
         rationale: generated.rationale || 'AI-generated Flint proposal.',
         context: panelContext,
         source: 'provider',
@@ -520,7 +769,7 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
       appendMessage(
         'assistant',
         [
-          `Prepared a ${generated.chartType} proposal.`,
+          `Prepared a ${generated.flintInput.chart_spec.chartType} proposal.`,
           generated.fallbackReason,
           generated.repairAttempts && !generated.fallbackReason
             ? `The advanced Flint input compiled after ${generated.repairAttempts} repair attempt.`
@@ -547,50 +796,81 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
   };
 
   const applyDraft = () => {
-    if (!draft || !isSamePanelContext(draft.context, panelContext)) {
-      setError('This proposal is stale because the Panel query or schema changed.');
+    const reportError = currentProposalOwner === 'workbench' ? setWorkbenchError : setError;
+    if (!draft || !panelContext || !isSamePanelContext(draft.context, panelContext)) {
+      reportError('This proposal is stale because the Panel query or schema changed.');
+      return;
+    }
+    if (draft.baseFingerprint !== undefined && draft.baseFingerprint !== committedFingerprint) {
+      reportError('This proposal is stale because the chart source changed before Apply.');
       return;
     }
     if (!context.options || preview.status !== 'ready') {
-      setError('Wait for the live preview to render successfully before applying it.');
+      reportError('Wait for the live preview to render successfully before applying it.');
       return;
     }
     if (specEditorBlocksApply) {
-      setError('Fix and validate the current Spec revision before applying it.');
+      reportError('Fix and validate the current Spec revision before applying it.');
       return;
     }
-    setUndo({
-      before: captureVizSnapshot(context.options),
-      appliedFingerprint: snapshotFingerprint(snapshotWithDraft(context.options, draft)),
-      context: panelContext,
-    });
+    sourceEditRevisionRef.current++;
+    if (draft.restoreRevisionId) {
+      try {
+        prepareChartRestore(history, draft.restoreRevisionId, captureVizSnapshot(context.options), panelContext);
+      } catch (cause) {
+        reportError(cause instanceof Error ? cause.message : String(cause));
+        return;
+      }
+    }
+    const label = (state: FlintVizSnapshot) => {
+      try {
+        return (
+          proposalChatContext(frames, state).dataHint?.split('\n')[0].replace('Current chart: ', '') ??
+          state.flintInput.chart_spec.chartType
+        );
+      } catch {
+        return state.flintInput.chart_spec.chartType;
+      }
+    };
+    const before = captureVizSnapshot(context.options);
+    const after = snapshotWithDraft(context.options, draft);
+    const next = recordChartApplication(
+      history,
+      before,
+      after,
+      panelContext,
+      { before: label(before), after: label(after) },
+      draft.restoreRevisionId,
+      false,
+      currentProposalOwner === 'workbench' ? 'workbench' : 'chat'
+    );
+    // Persist before onChange: Grafana may recreate the editor when consuming ai.pending.
+    saveChartHistory(storage, historyKey, next);
+    setHistory(next);
     setSpecEditorResetVersion((version) => version + 1);
     setSpecEditorStatus('pristine');
     setDraft(undefined);
     onChange({ ...ai, lastPrompt: generatedPromptRef.current, draft: undefined, pending: draft });
-    setNotice('Applied the proposal to Panel options.');
   };
 
   const undoApply = () => {
-    if (
-      !undo ||
-      !context.options ||
-      snapshotFingerprint(captureVizSnapshot(context.options)) !== undo.appliedFingerprint ||
-      !isSamePanelContext(undo.context, panelContext)
-    ) {
-      setError('Undo is no longer available because the Panel configuration or query schema changed.');
-      return;
+    try {
+      const previous = restoreContext.revisions.at(-1);
+      if (!previous) {
+        throw new Error(restoreContext.unavailableReason);
+      }
+      cancelRequest();
+      stageRestore(previous.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
     }
-    onChange({ ...ai, draft: undefined, pending: snapshotToPending(undo.before, panelContext) });
-    setUndo(undefined);
-    setNotice('Restoring the visualization from before the last AI Apply.');
   };
 
   const dismissStudio = () => {
     const hasUncommittedWork = Boolean(draft) || specEditorStatus !== 'pristine';
     if (
       hasUncommittedWork &&
-      !window.confirm('Discard the current chart proposal or Spec edits and close AI Chart Studio?')
+      !window.confirm('Discard the current chart proposal or Spec edits and close Chart workbench?')
     ) {
       return;
     }
@@ -643,7 +923,7 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
   return (
     <div className={styles.launcher} data-testid="flint-ai-assist">
       <Button type="button" onClick={() => setOpen(true)} data-testid="flint-ai-open-studio" fullWidth>
-        Open AI Chart Studio
+        Open Chart workbench
       </Button>
       <Tooltip content={hint.querySummary} placement="bottom-start">
         <div className={styles.secondaryText} data-testid="flint-ai-current-chart">
@@ -654,7 +934,7 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
       <Modal
         title={
           <div className={styles.modalTitle}>
-            <span>AI Chart Studio</span>
+            <span>Chart workbench</span>
             <IconButton
               name="info-circle"
               size="sm"
@@ -662,9 +942,22 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
               tooltip="Uses the current Grafana Panel. Drag the divider to resize the panes, or the lower-right corner to resize the dialog."
               tooltipPlacement="bottom-start"
             />
+            <ToolbarButton
+              className={styles.chatToggle}
+              icon="ai"
+              variant={isChatOpen ? 'active' : 'default'}
+              tooltip={isChatOpen ? 'Hide AI Chat' : 'Show AI Chat'}
+              aria-label={isChatOpen ? 'Hide AI Chat' : 'Show AI Chat'}
+              type="button"
+              aria-controls="flint-ai-chat-pane"
+              aria-expanded={isChatOpen}
+              onClick={() => setChatOpen((current) => !current)}
+            >
+              AI Chat
+            </ToolbarButton>
           </div>
         }
-        ariaLabel="AI Chart Studio"
+        ariaLabel="Chart workbench"
         isOpen={isOpen}
         onDismiss={dismissStudio}
         className={styles.modal}
@@ -686,18 +979,25 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
               frames={frames}
               options={context.options}
               draft={draft}
-              querySummary={hint.querySummary}
               previewLabel={previewLabel}
+              notice={workbenchNotice}
+              error={workbenchError}
+              previewError={currentProposalOwner !== 'chat' && preview.status === 'error' ? preview.error : undefined}
+              draftIsStale={currentProposalOwner === 'workbench' && draftIsStale}
+              onDismissNotice={() => setWorkbenchNotice(undefined)}
               panelContext={panelContext}
               specDraftControls={{
                 canApply: canApplyDraft,
                 onDraftChange: stageManualSpecDraft,
-                onStatusChange: setSpecEditorStatus,
+                onStatusChange: (status) => {
+                  if (status === 'checking' || status !== specEditorStatus) {
+                    sourceEditRevisionRef.current++;
+                  }
+                  setSpecEditorStatus(status);
+                },
                 onApply: applyDraft,
                 onDiscard: discardDraft,
               }}
-              isChatOpen={isChatOpen}
-              onToggleChat={() => setChatOpen((current) => !current)}
               onPreviewStatusChange={updatePreview}
             />
           </section>
@@ -756,6 +1056,53 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
                 />
               </div>
               <div className={styles.paneHeaderActions}>
+                <IconButton
+                  name="download-alt"
+                  tooltip="Export diagnostics: chat, chart state, AI calls and errors. Credentials and query rows are excluded."
+                  aria-label="Export diagnostics"
+                  type="button"
+                  data-testid="flint-ai-export-diagnostics"
+                  onClick={() => {
+                    try {
+                      const provider = providers.find((item) => item.value === selectedProviderUid);
+                      downloadAiDiagnostics(
+                        buildAiDiagnosticReport({
+                          messages,
+                          provider: { uid: selectedProviderUid, name: provider?.label, model: provider?.description },
+                          panelContext,
+                          frames,
+                          committed: toChartState(context.options ?? defaultFlintOptions),
+                          draft,
+                          proposalPlan,
+                          requests: diagnostics.snapshot(),
+                          history: {
+                            revisions: history,
+                            available: !restoreContext.unavailableReason,
+                            unavailableReason: restoreContext.unavailableReason,
+                          },
+                          status: {
+                            busy,
+                            error,
+                            notice,
+                            preview,
+                            specEditor: specEditorStatus,
+                            draftIsStale,
+                            canApply: canApplyDraft,
+                          },
+                          environment: {
+                            grafanaVersion: config.buildInfo.version,
+                            pagePath: window.location.pathname,
+                            userAgent: navigator.userAgent,
+                          },
+                        })
+                      );
+                    } catch (cause) {
+                      setError(
+                        `Could not export diagnostics: ${cause instanceof Error ? cause.message : String(cause)}`
+                      );
+                    }
+                  }}
+                />
                 {busy === 'generate' ? (
                   <Button size="sm" type="button" variant="secondary" onClick={cancelRequest}>
                     Cancel generation
@@ -778,16 +1125,22 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
                     </Button>
                   </Tooltip>
                 )}
-                {undo && (
-                  <IconButton
-                    name="history"
-                    tooltip="Undo last apply"
+                <Tooltip
+                  content={restoreContext.unavailableReason ?? 'Preview the exact version before the last application.'}
+                >
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon="history"
                     aria-label="Undo last apply"
                     type="button"
+                    disabled={Boolean(restoreContext.unavailableReason)}
                     onClick={undoApply}
                     data-testid="flint-ai-undo-apply"
-                  />
-                )}
+                  >
+                    Undo last apply
+                  </Button>
+                </Tooltip>
                 <IconButton
                   name="trash-alt"
                   tooltip="Clear chat"
@@ -796,6 +1149,9 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
                   disabled={Boolean(busy) || messages.length === 0}
                   onClick={() => {
                     clearTemporaryChat(storage, storageKey);
+                    diagnostics.clear();
+                    setRestoreConversation(false);
+                    setProposalPlan(undefined);
                     setMessages([]);
                     setNotice('Cleared the temporary conversation.');
                   }}
@@ -803,6 +1159,57 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
               </div>
             </header>
 
+            <div
+              className={`${styles.secondaryText} ${styles.modeControls}`}
+              data-testid="flint-ai-proposal-scope"
+              aria-live="polite"
+            >
+              {proposalPlan && proposalPlan.mode !== 'clarify' ? (
+                <>
+                  <strong>
+                    {proposalPlan.mode === 'restore'
+                      ? 'Restore saved chart'
+                      : proposalPlan.mode === 'refine'
+                        ? 'Adjust current chart'
+                        : 'Redesign chart'}
+                  </strong>
+                  <div>{proposalPlan.summary}</div>
+                  {proposalPlan.mode === 'create' && <div>Review chart type and field bindings before Apply.</div>}
+                </>
+              ) : (
+                'Describe your change in chat. AI determines its scope; review the preview before Apply.'
+              )}
+            </div>
+            {history.length > 1 && (
+              <details
+                className={`${styles.secondaryText} ${styles.modeControls}`}
+                data-testid="flint-ai-chart-history"
+              >
+                <summary>Chart history ({history.length - 1} earlier versions)</summary>
+                {restoreContext.unavailableReason && <div>{restoreContext.unavailableReason}</div>}
+                {history
+                  .slice(0, -1)
+                  .reverse()
+                  .map((revision) => (
+                    <div key={revision.id}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={Boolean(restoreContext.unavailableReason) || Boolean(busy)}
+                        onClick={() => {
+                          try {
+                            stageRestore(revision.id);
+                          } catch (cause) {
+                            setError(String(cause));
+                          }
+                        }}
+                      >
+                        Preview {revision.label} · {new Date(revision.createdAt).toLocaleTimeString()}
+                      </Button>
+                    </div>
+                  ))}
+              </details>
+            )}
             <GrafanaAssistantChat
               messages={messages}
               busy={busy}
@@ -822,7 +1229,7 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
                   <div className={styles.proposalHeader}>
                     <div className={styles.paneTitleRow}>
                       <div className={styles.proposalTitle}>
-                        {draft.chartType} ·{' '}
+                        {proposalSettings?.chartType} ·{' '}
                         {RENDER_BACKENDS.find((item) => item.value === selectedRenderBackend)?.label ??
                           selectedRenderBackend}
                       </div>
@@ -840,11 +1247,11 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
                   </div>
                   <div className={styles.mapping}>
                     <span>X</span>
-                    <span>{draft.xField || 'Auto'}</span>
+                    <span>{proposalSettings?.xField || 'Auto'}</span>
                     <span>Y</span>
-                    <span>{draft.yField || 'Auto'}</span>
+                    <span>{proposalSettings?.yField || 'Auto'}</span>
                     <span>Color</span>
-                    <span>{draft.colorField || 'None'}</span>
+                    <span>{proposalSettings?.colorField || 'None'}</span>
                   </div>
                   <div className={styles.inlineActions}>
                     <Button
@@ -854,7 +1261,7 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
                       disabled={!canApplyDraft}
                       data-testid="flint-ai-apply-draft"
                     >
-                      Apply
+                      {draft.restoreRevisionId ? 'Restore this version' : 'Apply'}
                     </Button>
                     <Button
                       size="sm"
@@ -872,11 +1279,12 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
               {draftIsStale && currentProposalOwner === 'chat' && (
                 <div className={styles.chatAlert}>
                   <Alert title="Proposal is stale" severity="warning">
-                    The Panel query or field schema changed. Generate a new proposal before Apply.
+                    The Panel query, field schema or committed chart source changed. Generate a new proposal before
+                    Apply.
                   </Alert>
                 </div>
               )}
-              {preview.status === 'error' && preview.error && (
+              {currentProposalOwner === 'chat' && preview.status === 'error' && preview.error && (
                 <div className={styles.chatAlert}>
                   <Alert title="Preview failed" severity="error">
                     {preview.error}
@@ -892,7 +1300,7 @@ export const AiAssistEditor: React.FC<StandardEditorProps<FlintAiConfig, unknown
               )}
               {notice && (
                 <div className={styles.chatAlert}>
-                  <Alert title="AI Chart Studio" severity="info" onRemove={() => setNotice(undefined)}>
+                  <Alert title="Chart workbench" severity="info" onRemove={() => setNotice(undefined)}>
                     {notice}
                   </Alert>
                 </div>

@@ -4,7 +4,6 @@ import { compile as compileVegaLite } from 'vega-lite';
 import { defaultFlintOptions } from '../types';
 import { assemblePanelChart, buildChartAssemblyInput, inferChartType } from './assemble';
 import { dataFramesToFlintTable } from './dataFrames';
-import { createFrameworkOverride } from './frameworkOverride';
 
 const size = { width: 640, height: 320 };
 
@@ -61,32 +60,6 @@ describe('buildChartAssemblyInput', () => {
 
     const assembled = assemblePanelChart(table, { ...defaultFlintOptions, chartType: 'Grouped Bar Chart' }, size);
     expect(assembled.payload.series).toEqual(expect.arrayContaining([expect.any(Object), expect.any(Object)]));
-  });
-
-  it('applies a Flint chart_spec JSON override without replacing Grafana data', () => {
-    const table = dataFramesToFlintTable([
-      toDataFrame({
-        fields: [
-          { name: 'region', type: FieldType.string, values: ['North'] },
-          { name: 'revenue', type: FieldType.number, values: [120] },
-        ],
-      }),
-    ]);
-
-    const input = buildChartAssemblyInput(
-      table,
-      {
-        ...defaultFlintOptions,
-        specJson: JSON.stringify({
-          chartType: 'Pie Chart',
-          encodings: { color: { field: 'region' }, size: { field: 'revenue' } },
-        }),
-      },
-      size
-    );
-
-    expect(input.chart_spec.chartType).toBe('Pie Chart');
-    expect(input.data.values).toEqual([{ region: 'North', revenue: 120 }]);
   });
 
   it('maps Gauge Chart numeric values to Flint size instead of unsupported x/y channels', () => {
@@ -222,33 +195,6 @@ describe('assemblePanelChart', () => {
       })
     );
     expect(JSON.stringify(assembled.payload)).not.toContain('_warnings');
-  });
-
-  it('replays the selected backend Framework override after compiling', () => {
-    const table = dataFramesToFlintTable([
-      toDataFrame({
-        fields: [
-          { name: 'region', type: FieldType.string, values: ['North', 'South'] },
-          { name: 'revenue', type: FieldType.number, values: [120, 90] },
-        ],
-      }),
-    ]);
-    const options = { ...defaultFlintOptions, chartType: 'Bar Chart' };
-    const generated = assemblePanelChart(table, options, size);
-    const edited = {
-      ...generated.payload,
-      tooltip: { ...((generated.payload.tooltip as Record<string, unknown>) ?? {}), trigger: 'item' },
-    };
-    const override = createFrameworkOverride({
-      backend: 'echarts',
-      input: generated.input,
-      generated: generated.payload,
-      edited,
-    });
-
-    const assembled = assemblePanelChart(table, { ...options, frameworkOverrides: { echarts: override! } }, size);
-
-    expect(assembled.payload.tooltip).toMatchObject({ trigger: 'item' });
   });
 
   it('compiles with the Vega-Lite backend when selected', () => {

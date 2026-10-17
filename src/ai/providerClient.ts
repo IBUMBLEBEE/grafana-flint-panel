@@ -3,11 +3,31 @@ import { getDataSourceSrv } from '@grafana/runtime';
 
 import type { FlintChartCatalogEntry } from '../flint/chartTypes';
 import type { RenderBackend } from '../flint/backends';
+import type { FlintChartState } from '../flint/chartState';
+import {
+  AI_REQUEST_CONTRACT_VERSION,
+  toGenerateChartWireRequest,
+  toRepairChartWireRequest,
+  type GenerateChartWireRequest,
+  type RepairChartWireRequest,
+} from './providerWire';
+
+export interface ProviderTransportEvent {
+  stage: 'datasource-call';
+  request: unknown;
+  contractVersion?: number;
+}
+export type ProviderTransportObserver = (event: ProviderTransportEvent) => void;
+
+export type AiGenerationMode = 'create' | 'refine';
 
 export const FLINT_AI_DATASOURCE_PLUGIN_ID = 'ibumblebee-flintai-datasource';
 
 export interface GenerateChartRequest {
   prompt: string;
+  generationMode?: AiGenerationMode;
+  currentChartState?: FlintChartState;
+  allowedPaths?: string[];
   fields: Array<{ name: string; type: string }>;
   dataHint?: string;
   suggestedChartType?: string;
@@ -24,7 +44,8 @@ export interface GenerateChartRequest {
 }
 
 export interface GenerateChartResponse {
-  chartType: string;
+  seriesColors?: Record<string, string> | null;
+  chartType?: string;
   xField?: string;
   yField?: string;
   colorField?: string;
@@ -53,6 +74,10 @@ export interface ChatRequest {
     fields: Array<{ name: string; type: string }>;
     dataHint?: string;
     renderBackend?: RenderBackend;
+    chartHistory?: {
+      revisions: Array<{ id: string; label: string; createdAt: number }>;
+      unavailableReason?: string;
+    };
   };
 }
 
@@ -60,15 +85,44 @@ export interface ChatResponse {
   message: string;
 }
 
+export interface ProposalPlan {
+  mode: AiGenerationMode | 'clarify' | 'restore';
+  restoreRevisionId?: string;
+  summary: string;
+  question: string;
+}
+
 export interface AiProviderClient {
-  generate(providerUid: string, input: GenerateChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
-  repair(providerUid: string, input: RepairChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
-  chat(providerUid: string, input: ChatRequest, signal?: AbortSignal): Promise<ChatResponse>;
+  plan(
+    providerUid: string,
+    input: ChatRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
+  ): Promise<ProposalPlan>;
+  generate(
+    providerUid: string,
+    input: GenerateChartRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
+  ): Promise<GenerateChartResponse>;
+  repair(
+    providerUid: string,
+    input: RepairChartRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
+  ): Promise<GenerateChartResponse>;
+  chat(
+    providerUid: string,
+    input: ChatRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
+  ): Promise<ChatResponse>;
 }
 
 interface ProviderDataSource {
-  generate(input: GenerateChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
-  repair(input: RepairChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
+  plan(input: ChatRequest, signal?: AbortSignal): Promise<ProposalPlan>;
+  generate(input: GenerateChartWireRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
+  repair(input: RepairChartWireRequest, signal?: AbortSignal): Promise<GenerateChartResponse>;
   chat(input: ChatRequest, signal?: AbortSignal): Promise<ChatResponse>;
 }
 
@@ -90,6 +144,15 @@ function describeProviderError(cause: unknown): string {
     }
   }
   return String(cause);
+}
+
+export function providerHttpStatus(cause: unknown): number | undefined {
+  if (!cause || typeof cause !== 'object') {
+    return undefined;
+  }
+  const error = cause as { httpStatus?: unknown; status?: unknown; response?: { status?: unknown } };
+  const status = error.httpStatus ?? error.status ?? error.response?.status;
+  return typeof status === 'number' ? status : undefined;
 }
 
 interface DataSourceService {
@@ -124,46 +187,77 @@ export function listAiProviders(service: DataSourceService = getDataSourceSrv())
 export class GrafanaAiProviderClient implements AiProviderClient {
   constructor(private readonly service: DataSourceService = getDataSourceSrv()) {}
 
+  async plan(
+    providerUid: string,
+    input: ChatRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
+  ): Promise<ProposalPlan> {
+    return this.callProvider(providerUid, 'plan', input, signal, observer);
+  }
+
   async generate(
     providerUid: string,
     input: GenerateChartRequest,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
   ): Promise<GenerateChartResponse> {
-    return this.callProvider(providerUid, 'generate', input, signal);
+    return this.callProvider(providerUid, 'generate', toGenerateChartWireRequest(input), signal, observer);
   }
 
-  async chat(providerUid: string, input: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
-    return this.callProvider(providerUid, 'chat', input, signal);
+  async chat(
+    providerUid: string,
+    input: ChatRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
+  ): Promise<ChatResponse> {
+    return this.callProvider(providerUid, 'chat', input, signal, observer);
   }
 
-  async repair(providerUid: string, input: RepairChartRequest, signal?: AbortSignal): Promise<GenerateChartResponse> {
-    return this.callProvider(providerUid, 'repair', input, signal);
+  async repair(
+    providerUid: string,
+    input: RepairChartRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
+  ): Promise<GenerateChartResponse> {
+    return this.callProvider(providerUid, 'repair', toRepairChartWireRequest(input), signal, observer);
   }
 
   private async callProvider(
     providerUid: string,
+    method: 'plan',
+    input: ChatRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
+  ): Promise<ProposalPlan>;
+  private async callProvider(
+    providerUid: string,
     method: 'generate',
-    input: GenerateChartRequest,
-    signal?: AbortSignal
+    input: GenerateChartWireRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
   ): Promise<GenerateChartResponse>;
   private async callProvider(
     providerUid: string,
     method: 'chat',
     input: ChatRequest,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
   ): Promise<ChatResponse>;
   private async callProvider(
     providerUid: string,
     method: 'repair',
-    input: RepairChartRequest,
-    signal?: AbortSignal
+    input: RepairChartWireRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
   ): Promise<GenerateChartResponse>;
   private async callProvider(
     providerUid: string,
-    method: 'generate' | 'repair' | 'chat',
-    input: GenerateChartRequest | RepairChartRequest | ChatRequest,
-    signal?: AbortSignal
-  ): Promise<GenerateChartResponse | ChatResponse> {
+    method: 'generate' | 'repair' | 'chat' | 'plan',
+    input: GenerateChartWireRequest | RepairChartRequest | ChatRequest,
+    signal?: AbortSignal,
+    observer?: ProviderTransportObserver
+  ): Promise<GenerateChartResponse | ChatResponse | ProposalPlan> {
     const uid = providerUid.trim();
     if (!uid) {
       throw new Error(
@@ -176,23 +270,43 @@ export class GrafanaAiProviderClient implements AiProviderClient {
       throw new Error('The selected Flint AI provider is missing or inaccessible. Choose another provider.');
     }
 
+    let requestStage = 'provider-resolution';
     try {
       const dataSource = await this.service.get(uid);
       const resource = (dataSource as Partial<ProviderDataSource>)[method];
       if (typeof resource !== 'function') {
-        throw new Error(`selected data source does not expose the Flint ${method} resource`);
+        if (method === 'plan') {
+          throw new Error('Update the Flint AI datasource plugin to support automatic proposal planning.');
+        }
+        throw new Error(
+          `Update the Flint AI datasource plugin: the selected datasource does not expose the Flint ${method} resource.`
+        );
       }
       const call = resource as (
-        input: GenerateChartRequest | RepairChartRequest | ChatRequest,
-        signal?: AbortSignal
-      ) => Promise<GenerateChartResponse | ChatResponse>;
+        input: GenerateChartWireRequest | RepairChartRequest | ChatRequest,
+        signal?: AbortSignal,
+        observer?: ProviderTransportObserver
+      ) => Promise<GenerateChartResponse | ChatResponse | ProposalPlan>;
+      requestStage = 'datasource-call';
+      observer?.({
+        stage: 'datasource-call',
+        request: JSON.parse(JSON.stringify(input)),
+        contractVersion: method === 'generate' || method === 'repair' ? AI_REQUEST_CONTRACT_VERSION : undefined,
+      });
       return signal ? await call.call(dataSource, input, signal) : await call.call(dataSource, input);
     } catch (cause) {
       if (signal?.aborted) {
         throw new Error('Request cancelled.');
       }
       const detail = describeProviderError(cause);
-      throw new Error(`Selected Flint AI provider request failed: ${detail}`);
+      const status = providerHttpStatus(cause);
+      const compatibility = /invalid (?:generate|repair) request/.test(detail)
+        ? ' The datasource rejected the request contract. Check Panel/datasource compatibility and export diagnostics.'
+        : '';
+      throw Object.assign(new Error(`Selected Flint AI provider request failed: ${detail}${compatibility}`), {
+        httpStatus: status,
+        stage: requestStage,
+      });
     }
   }
 }

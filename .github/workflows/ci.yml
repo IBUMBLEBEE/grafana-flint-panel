@@ -39,6 +39,8 @@ jobs:
 
       - name: Check formatting
         run: npm run format:check
+      - name: Check Flint provisioning contract
+        run: npm run check:flint-contract
       - name: Check types
         run: npm run typecheck
       - name: Lint
@@ -133,6 +135,36 @@ jobs:
           name: ${{ steps.metadata.outputs.plugin-id }}-${{ steps.metadata.outputs.plugin-version }}
           path: ${{ steps.metadata.outputs.plugin-id }}
           retention-days: 5
+
+  ai-contract:
+    name: AI datasource contract (${{ matrix.datasource-ref }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        datasource-ref: ['9ffc1a1f214b5c171072059fdb9003ced92466b1', 'main']
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: IBUMBLEBEE/grafana-flintai-datasource
+          ref: ${{ matrix.datasource-ref }}
+          path: .consumer/flint-ai-datasource
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: .consumer/flint-ai-datasource/go.mod
+      - run: npm ci
+      - name: Validate serialized requests with the real datasource decoders
+        run: npm run check:ai-contract
+        env:
+          FLINT_AI_DATASOURCE_DIR: .consumer/flint-ai-datasource
 
   resolve-versions:
     name: Resolve e2e images

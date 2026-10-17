@@ -1,0 +1,119 @@
+{
+  "dashboard": {
+    "uid": "REPLACE_NEW_DASHBOARD_UID",
+    "title": "Flint Agent Demo",
+    "tags": ["flint", "agent", "mcp"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 0,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "type": "ibumblebee-flint-panel",
+        "title": "CPU Line (auto fields)",
+        "gridPos": {
+          "h": 10,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "datasource": {
+          "type": "grafana-testdata-datasource",
+          "uid": "trlxrdZVk"
+        },
+        "fieldConfig": {
+          "defaults": {},
+          "overrides": []
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "grafana-testdata-datasource",
+              "uid": "trlxrdZVk"
+            },
+            "scenarioId": "random_walk",
+            "seriesCount": 2
+          }
+        ],
+        "options": {
+          "stateVersion": 1,
+          "renderBackend": "echarts",
+          "bindingMode": "auto",
+          "flintInput": {
+            "chart_spec": {
+              "chartType": "Line Chart",
+              "encodings": {}
+            }
+          },
+          "ai": {
+            "lastPrompt": ""
+          }
+        }
+      },
+      {
+        "id": 2,
+        "type": "ibumblebee-flint-panel",
+        "title": "Memory-like Bar",
+        "gridPos": {
+          "h": 10,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "datasource": {
+          "type": "grafana-testdata-datasource",
+          "uid": "trlxrdZVk"
+        },
+        "fieldConfig": {
+          "defaults": {},
+          "overrides": []
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "grafana-testdata-datasource",
+              "uid": "trlxrdZVk"
+            },
+            "scenarioId": "raw_frame",
+            "rawFrameContent": "[\n  {\n    \"columns\": [\n      { \"text\": \"region\", \"type\": \"string\" },\n      { \"text\": \"revenue\", \"type\": \"number\" }\n    ],\n    \"rows\": [\n      [\"North\", 120],\n      [\"South\", 90],\n      [\"East\", 150],\n      [\"West\", 80]\n    ]\n  }\n]"
+          }
+        ],
+        "options": {
+          "stateVersion": 1,
+          "renderBackend": "echarts",
+          "bindingMode": "explicit",
+          "flintInput": {
+            "chart_spec": {
+              "chartType": "Bar Chart",
+              "encodings": {
+                "x": {
+                  "field": "region"
+                },
+                "y": {
+                  "field": "revenue"
+                }
+              }
+            },
+            "semantic_types": {
+              "region": "Category",
+              "revenue": "Amount"
+            }
+          },
+          "ai": {
+            "lastPrompt": ""
+          }
+        }
+      }
+    ]
+  },
+  "folderUid": "",
+  "message": "Created by Flint agent template",
+  "overwrite": false
+}

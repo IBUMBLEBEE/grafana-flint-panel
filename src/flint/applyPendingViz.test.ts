@@ -1,56 +1,63 @@
 import { defaultFlintOptions } from '../types';
 import { applyPendingViz } from './applyPendingViz';
-import { clearFrameworkOverride } from './frameworkOverride';
+import { panelOptionsUpdate } from './panelOptionsUpdate';
 
 describe('applyPendingViz', () => {
-  it('persists a reviewed UI Framework override into Panel options', () => {
-    const override = {
-      version: 1 as const,
-      backend: 'echarts' as const,
-      compilerVersion: '0.5.1',
-      sourceFingerprint: 'source-a',
-      patch: [{ op: 'replace' as const, path: '/tooltip/trigger', value: 'item' }],
+  it('explicitly clears an old palette when restoring a snapshot with default colors', () => {
+    const options = { ...defaultFlintOptions, seriesColors: { revenue: '#0072B2', profit: '#009E73' } };
+    const update = panelOptionsUpdate(
+      options,
+      applyPendingViz(options, { chartType: 'Line Chart', xField: 'quarter', yField: 'revenue' })
+    );
+    expect(update).toHaveProperty('seriesColors', undefined);
+    expect({ ...options, ...update }.seriesColors).toBeUndefined();
+  });
+
+  it('clears removed nested source fields during an exact snapshot restore', () => {
+    const options = {
+      ...defaultFlintOptions,
+      flintInput: {
+        semantic_types: { quarter: 'Quarter', revenue: 'Amount' },
+        chart_spec: {
+          chartType: 'Line Chart',
+          title: 'Changed',
+          encodings: { x: 'quarter', y: ['revenue', 'profit'] },
+        },
+      },
     };
-    const result = applyPendingViz(defaultFlintOptions, {
-      renderBackend: 'echarts',
+    const restored = { chart_spec: { chartType: 'Grouped Bar Chart', encodings: { x: 'quarter' } } };
+    const update = panelOptionsUpdate(options, applyPendingViz(options, { flintInput: restored, bindingMode: 'auto' }));
+    expect(update.flintInput.chart_spec).toHaveProperty('title', undefined);
+    expect(update.flintInput.chart_spec.encodings).toHaveProperty('y', undefined);
+    expect(update.flintInput).toHaveProperty('semantic_types', undefined);
+    expect(JSON.parse(JSON.stringify(update.flintInput))).toEqual(restored);
+    expect(options.flintInput.chart_spec.title).toBe('Changed');
+  });
+  it('saves semantic source only and drops obsolete compiled overrides', () => {
+    const legacy = { ...defaultFlintOptions, frameworkOverrides: { echarts: { patch: [] } } };
+    const result = applyPendingViz(legacy, {
       chartType: 'Bar Chart',
       xField: 'region',
       yField: 'revenue',
       colorField: '',
       specJson: '',
-      frameworkOverrides: { echarts: override },
     });
-
-    expect(result.frameworkOverrides?.echarts).toEqual(override);
-  });
-
-  it('clears a saved UI Framework override when the reviewed draft has none', () => {
-    const result = applyPendingViz(
-      {
-        ...defaultFlintOptions,
-        frameworkOverrides: {
-          echarts: {
-            version: 1,
-            backend: 'echarts',
-            compilerVersion: '0.5.1',
-            sourceFingerprint: 'source-a',
-            patch: [{ op: 'replace', path: '/tooltip/trigger', value: 'item' }],
-          },
-        },
-      },
-      {
-        renderBackend: 'echarts',
-        chartType: 'Bar Chart',
-        xField: 'region',
-        yField: 'revenue',
-        colorField: '',
-        specJson: '',
-        frameworkOverrides: clearFrameworkOverride(undefined, 'echarts'),
-      }
-    );
-
-    expect(result.frameworkOverrides?.echarts).toBeUndefined();
-    expect(JSON.stringify(result.frameworkOverrides)).toBe('{}');
+    expect(result.flintInput?.chart_spec).toMatchObject({
+      chartType: 'Bar Chart',
+      encodings: { x: { field: 'region' }, y: { field: 'revenue' } },
+    });
+    for (const key of [
+      'frameworkOverrides',
+      'specJson',
+      'chartType',
+      'xField',
+      'yField',
+      'colorField',
+      'waterfallTotals',
+    ]) {
+      expect(result).not.toHaveProperty(key);
+    }
+    expect(result.bindingMode).toBe('auto');
   });
 
   it('does not persist proposal query provenance after Apply', () => {

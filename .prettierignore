@@ -7,3 +7,6 @@ coverage/
 playwright-report/
 test-results/
 *.zip
+
+# Preserve the byte-for-byte upstream skill and its recorded hash.
+.codex/skills/flint-chart-author/SKILL.md

@@ -8,6 +8,7 @@ import { defaultFlintOptions, FlintOptions, hasLegacyAiConfig, sanitizeAiConfig 
 import { FlintPreviewRequestEvent, FlintPreviewResultEvent } from '../ai/preview';
 import { assemblePanelChart } from '../flint/assemble';
 import { applyPendingViz } from '../flint/applyPendingViz';
+import { panelOptionsUpdate } from '../flint/panelOptionsUpdate';
 import { createChartRuntime, type ChartRuntime } from '../flint/chartRuntime';
 import { preparePanelData } from '../flint/preparePanelData';
 import { mountBackendChart } from '../flint/renderBackend';
@@ -19,6 +20,8 @@ import {
   registerPanelQueryContext,
 } from '../ai/panelContext';
 import { validatePendingViz } from '../flint/validateOptions';
+
+import { migrateFlintOptions, needsChartStateMigration } from '../migrations';
 
 interface Props extends PanelProps<FlintOptions> {}
 
@@ -96,7 +99,7 @@ export const FlintPanel: React.FC<Props> = ({
   const [renderError, setRenderError] = useState<string>();
 
   const ai = sanitizeAiConfig(options.ai);
-  const needsAiMigration = hasLegacyAiConfig(options.ai);
+  const needsAiMigration = hasLegacyAiConfig(options.ai) || needsChartStateMigration({ options });
   const renderBackend = options.renderBackend ?? defaultFlintOptions.renderBackend;
   const pending = ai.pending;
   const hostSize = useMemo(() => stableHostSize(width, height), [width, height]);
@@ -178,7 +181,7 @@ export const FlintPanel: React.FC<Props> = ({
   // Apply staged visualization updates from the options-editor AI Assist.
   useEffect(() => {
     if (needsAiMigration) {
-      onOptionsChange({ ...options, ai });
+      onOptionsChange(migrateFlintOptions({ options }));
     }
   }, [ai, needsAiMigration, onOptionsChange, options]);
 
@@ -210,12 +213,12 @@ export const FlintPanel: React.FC<Props> = ({
         table.fields.map((field) => field.name),
         pending.renderBackend ?? renderBackend
       );
+      onOptionsChange(panelOptionsUpdate(options, applyPendingViz(options, pending)));
     } catch {
       onOptionsChange({ ...options, ai: { ...ai, draft: pending, pending: undefined } });
       return;
     }
 
-    onOptionsChange(applyPendingViz(options, pending));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending]);
 

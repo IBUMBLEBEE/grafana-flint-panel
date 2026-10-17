@@ -1,18 +1,21 @@
+import { FieldType } from '@grafana/data';
 import { FlintPendingViz, WATERFALL_TOTALS_MODES } from '../types';
 import { RENDER_BACKENDS, type RenderBackend } from './backends';
 import {
   allowedChartTypesForBackend,
   chartChannelsForBackend,
+  chartCatalogForBackend,
   chartPropertiesForBackend,
   FLINT_SEMANTIC_TYPES,
   requiredChartChannelsForBackend,
 } from './chartTypes';
 import { FlintTable } from './dataFrames';
-import { validateFrameworkOverrides } from './frameworkOverride';
+import { chartSettings, toChartState } from './chartState';
+import { seriesFields, validateSeriesColors } from './seriesColors';
 import type { FlintRenderOptions } from './visualizationRevision';
 
 const MAX_SPEC_JSON_BYTES = 64 * 1024;
-const ROOT_INPUT_KEYS = new Set(['chart_spec', 'semantic_types', 'field_display_names', 'options']);
+const ROOT_INPUT_KEYS = new Set(['chart_spec', 'semantic_types', 'field_display_names', 'options', 'theme_spec']);
 
 function assertKnownField(name: string, fieldNames: Set<string>, label: string): void {
   if (name && !fieldNames.has(name)) {
@@ -20,19 +23,24 @@ function assertKnownField(name: string, fieldNames: Set<string>, label: string):
   }
 }
 
-function assertNoEmbeddedData(value: unknown, path = 'specJson', fieldNameMap = false): void {
+function assertNoEmbeddedData(value: unknown, path = 'specJson', fieldNameMap = false, root = true): void {
   if (!value || typeof value !== 'object') {
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((item, index) => assertNoEmbeddedData(item, `${path}[${index}]`, fieldNameMap));
+    value.forEach((item, index) => assertNoEmbeddedData(item, `${path}[${index}]`, fieldNameMap, false));
     return;
   }
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     if (!fieldNameMap && key === 'data') {
       throw new Error(`${path} must not contain data; Grafana queries are the only data source`);
     }
-    assertNoEmbeddedData(child, `${path}.${key}`, key === 'semantic_types' || key === 'field_display_names');
+    assertNoEmbeddedData(
+      child,
+      `${path}.${key}`,
+      root && Object.hasOwn(value, 'chart_spec') && (key === 'semantic_types' || key === 'field_display_names'),
+      false
+    );
   }
 }
 
@@ -102,6 +110,25 @@ function assertChartProperties(value: unknown, backend: RenderBackend, chartType
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Invalid Flint spec JSON: chart_spec.chartProperties must be an object');
   }
+  if (chartType === 'auto') {
+    for (const [key, propertyValue] of Object.entries(value as Record<string, unknown>)) {
+      const applicableCharts = chartCatalogForBackend(backend).filter((entry) =>
+        entry.properties.some((property) => property.key === key)
+      );
+      const accepted = applicableCharts.some((entry) => {
+        try {
+          assertChartProperties({ [key]: propertyValue }, backend, entry.chartType);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      if (!accepted) {
+        throw new Error(`Invalid Flint spec JSON: Auto has unsupported chartProperties.${key} or value`);
+      }
+    }
+    return;
+  }
   const definitions = new Map(
     chartPropertiesForBackend(backend, chartType).map((property) => [property.key, property])
   );
@@ -132,10 +159,18 @@ function assertChartProperties(value: unknown, backend: RenderBackend, chartType
 
 /** Validates the small panel contract agents are allowed to write. */
 export function validatePendingViz(
-  pending: FlintPendingViz,
+  candidate: FlintPendingViz,
   fieldNames: Iterable<string>,
   backend: RenderBackend = 'echarts'
 ): void {
+  const state = toChartState(candidate);
+  if (state.recovery) {
+    throw new Error(state.recovery.message);
+  }
+  const pending = { ...state, ...chartSettings(state) };
+  if (state.bindingMode === 'explicit') {
+    validateSeriesColors(state.seriesColors, state.flintInput);
+  }
   const knownFields = new Set(fieldNames);
   const chartTypes = new Set<string>(allowedChartTypesForBackend(backend));
 
@@ -145,7 +180,6 @@ export function validatePendingViz(
   assertKnownField(pending.xField, knownFields, 'xField');
   assertKnownField(pending.yField, knownFields, 'yField');
   assertKnownField(pending.colorField, knownFields, 'colorField');
-  validateFrameworkOverrides(pending.frameworkOverrides);
 
   const text = pending.specJson.trim();
   if (!text) {
@@ -191,7 +225,11 @@ export function validatePendingViz(
     throw new Error('Invalid Flint spec JSON: chart_spec.encodings must be an object');
   }
   const encodingRecord = (encodings ?? {}) as Record<string, unknown>;
-  const allowedChannels = new Set(chartChannelsForBackend(backend, specChartType));
+  const allowedChannels = new Set(
+    specChartType === 'auto'
+      ? chartCatalogForBackend(backend).flatMap((entry) => entry.channels)
+      : chartChannelsForBackend(backend, specChartType)
+  );
   for (const channel of Object.keys(encodingRecord)) {
     if (!allowedChannels.has(channel)) {
       throw new Error(
@@ -200,10 +238,12 @@ export function validatePendingViz(
     }
     assertEncodingValueFields(encodingRecord[channel], knownFields, `chart_spec.encodings.${channel}`);
   }
+  const staticSeries = seriesFields(state.flintInput).length > 1;
   const missingChannels = requiredChartChannelsForBackend(backend, specChartType).filter(
-    (channel) => encodingRecord[channel] === undefined
+    (channel) =>
+      encodingRecord[channel] === undefined && !(staticSeries && (channel === 'group' || channel === 'color'))
   );
-  if (missingChannels.length) {
+  if (missingChannels.length && state.bindingMode === 'explicit') {
     throw new Error(`Invalid Flint spec JSON: ${specChartType} requires ${missingChannels.join(' and ')} encodings`);
   }
   assertChartProperties(specRecord.chartProperties, backend, specChartType);
@@ -213,8 +253,8 @@ export function validatePendingViz(
   }
 }
 
-export function validateFlintOptions(options: FlintRenderOptions, table: FlintTable): void {
-  if (!RENDER_BACKENDS.some((backend) => backend.value === options.renderBackend)) {
+export function validateFlintOptions(options: Partial<FlintRenderOptions>, table: FlintTable): void {
+  if (!RENDER_BACKENDS.some((backend) => backend.value === (options.renderBackend ?? 'echarts'))) {
     throw new Error(`Unsupported render backend "${options.renderBackend}"`);
   }
   if (options.waterfallTotals !== undefined && !WATERFALL_TOTALS_MODES.includes(options.waterfallTotals)) {
@@ -225,4 +265,18 @@ export function validateFlintOptions(options: FlintRenderOptions, table: FlintTa
     table.fields.map((field) => field.name),
     options.renderBackend
   );
+  const state = toChartState(options);
+  for (const [channel, value] of Object.entries(state.flintInput.chart_spec.encodings ?? {})) {
+    if (!Array.isArray(value)) {
+      continue;
+    }
+    for (const [index, encoding] of value.entries()) {
+      const name = typeof encoding === 'string' ? encoding : encoding.field;
+      if (table.fields.find((field) => field.name === name)?.type !== FieldType.number) {
+        throw new Error(
+          `Invalid Flint spec JSON: chart_spec.encodings.${channel}[${index}] must reference a numeric query field`
+        );
+      }
+    }
+  }
 }

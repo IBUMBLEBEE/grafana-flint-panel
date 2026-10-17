@@ -1,5 +1,6 @@
 import { DEFAULT_RENDER_BACKEND, type RenderBackend } from './flint/backends';
 import type { FlintPanelContextSnapshot } from './ai/panelContext';
+import type { FlintChartState, LegacyChartFields } from './flint/chartState';
 
 export const AUTO_CHART_TYPE = 'auto';
 
@@ -8,40 +9,18 @@ export type WaterfallTotalsMode = (typeof WATERFALL_TOTALS_MODES)[number];
 
 export type { RenderBackend };
 
-export interface FrameworkPatchOperation {
-  op: 'add' | 'replace' | 'remove';
-  path: string;
-  value?: unknown;
-}
-
-/** Data-free edits applied after Flint compiles one backend-native spec. */
-export interface FrameworkOverride {
-  version: 1;
-  backend: RenderBackend;
-  compilerVersion: string;
-  sourceFingerprint: string;
-  patch: FrameworkPatchOperation[];
-}
-
-export type FrameworkOverrides = Partial<Record<RenderBackend, FrameworkOverride>>;
-
 /** Visualization fields that AI Assist can write back through ai.pending. */
-export interface FlintPendingViz {
+export interface FlintPendingViz extends Partial<FlintChartState>, LegacyChartFields {
+  /** Host-owned revision selected for a reviewed snapshot restore. Never persisted in chart source. */
+  restoreRevisionId?: string;
   /** Flint renderer selected for this proposal. Optional for legacy drafts. */
   renderBackend?: RenderBackend;
-  chartType: string;
-  /** Waterfall endpoint classification. Omitted proposals retain the committed value. */
-  waterfallTotals?: WaterfallTotalsMode;
-  xField: string;
-  yField: string;
-  colorField: string;
-  specJson: string;
-  /** Backend-specific expert edits. Runtime query data is never stored here. */
-  frameworkOverrides?: FrameworkOverrides;
   rationale?: string;
   /** Immutable evidence for the Grafana query result used to create this draft. */
   context?: FlintPanelContextSnapshot;
   source?: 'auto' | 'provider' | 'mcp' | 'manual' | 'undo';
+  /** Refinement baseline guard; retained with saved drafts, removed after successful Apply. */
+  baseFingerprint?: string;
 }
 
 export interface FlintAiConfig {
@@ -62,25 +41,12 @@ export interface FlintAiConfig {
   pending?: FlintPendingViz;
 }
 
-export interface FlintOptions {
-  /** Flint compile + browser render backend */
-  renderBackend: RenderBackend;
-  /**
-   * Flint chart type, or `auto` to infer from Grafana field types.
-   */
-  chartType: string;
-  /** Waterfall endpoint classification. Auto delegates to Flint's data-aware inference. */
-  waterfallTotals: WaterfallTotalsMode;
-  xField: string;
-  yField: string;
-  colorField: string;
-  /**
-   * Optional Flint spec JSON. Data always comes from the panel query.
-   * Accepts either a full ChartAssemblyInput (minus data) or a chart_spec object.
-   */
-  specJson: string;
-  /** Backend-specific, data-free edits replayed over freshly compiled output. */
-  frameworkOverrides?: FrameworkOverrides;
+/** Canonical saved options plus read-only legacy fields accepted during migration. */
+export interface FlintOptions extends Partial<FlintChartState>, LegacyChartFields {
+  ai: FlintAiConfig;
+}
+
+export interface PersistedFlintOptions extends FlintChartState {
   ai: FlintAiConfig;
 }
 
@@ -94,7 +60,11 @@ function withoutLegacyDataScope(pending?: FlintPendingViz): FlintPendingViz | un
   if (!pending) {
     return undefined;
   }
-  const { dataScope: _legacyDataScope, ...current } = pending as FlintPendingViz & { dataScope?: unknown };
+  const {
+    dataScope: _legacyDataScope,
+    frameworkOverrides: _overrides,
+    ...current
+  } = pending as FlintPendingViz & { dataScope?: unknown; frameworkOverrides?: unknown };
   return current;
 }
 
@@ -116,7 +86,8 @@ export function hasLegacyAiConfig(value: unknown): boolean {
   );
 }
 
-export const defaultFlintOptions: FlintOptions = {
+/** Compatibility defaults for inferred UI settings; saved options use FlintChartState. */
+export const defaultFlintOptions = {
   renderBackend: DEFAULT_RENDER_BACKEND,
   chartType: AUTO_CHART_TYPE,
   waterfallTotals: 'auto',
@@ -124,6 +95,5 @@ export const defaultFlintOptions: FlintOptions = {
   yField: '',
   colorField: '',
   specJson: '',
-  frameworkOverrides: {},
   ai: defaultAiConfig,
-};
+} satisfies FlintOptions;

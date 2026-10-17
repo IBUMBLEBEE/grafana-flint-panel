@@ -13,11 +13,34 @@ This repository contains a working Grafana panel, automated tests, and a local d
 
 Do not rely on the plugin for business-critical dashboards or unattended AI changes. No stability, migration, support, or service-level guarantee is currently provided.
 
-## Current AI limitation
+## Current AI scope and limitations
 
-AI Chat text does not modify a panel by itself. **Generate proposal** asks the selected model for a complete visualization proposal, and **Apply** writes the reviewed proposal into panel options.
+AI Chat text does not modify a panel by itself. **Generate proposal** stages a
+reviewable source proposal; **Apply** accepts it into panel options, and saving the
+dashboard persists it.
 
-Natural-language refinements are not yet constrained semantic patches. A style-only request such as “change only the colors” may still produce a different chart type, field mapping, color encoding, or Flint Spec. The proposal can therefore change which values are visualized even though it cannot rewrite the Grafana datasource query. Always review the live preview and the Chart Settings field mappings before Apply.
+**Automatic planning** reads the bounded conversation and runtime chart context before generation. It chooses local adjustments or a redesign, or asks a clarification question. The UI shows the selected scope and instruction summary; users do not select a mode.
+
+A **redesign** can replace chart type, bindings and semantic configuration.
+A **local adjustment** permits title, subtitle and field display names, plus
+series colors for unfaceted Grouped Bar Chart, Stacked Bar Chart and Line Chart
+with multiple numeric measure fields. A complete `seriesColors` map uses source
+measure field names and `#RRGGBB` values. It is persisted separately from
+`flintInput` and applied after Flint compilation on all four render backends.
+Palette-only proposals preserve the original source and Auto bindings. Preview,
+Apply, reload and Undo use the same palette state; changing the palette also
+invalidates stale refinement proposals.
+
+This does not enable arbitrary backend overrides, fonts, backgrounds, gridlines
+or axis styling. Refine preserves chart type, field bindings and data semantics.
+AI chooses the redesign path only for explicit structural requests; review the preview before Apply. Failed local adjustments never retry with broader redesign permissions. Planning requires an updated Flint AI datasource exposing the `/plan` resource. The Panel
+cannot rewrite Grafana datasource queries or execute transformation code.
+
+Canonical source, bounded wording and series-color refinement are covered by unit tests and
+mock Provider browser tests. These checks do not establish compatibility with every
+real LLM or prove the separately installed datasource forwards every new request
+field. Provider integration, broad refinement semantics and production guarantees
+remain evaluation work.
 
 ## Relationship to Microsoft Flint
 

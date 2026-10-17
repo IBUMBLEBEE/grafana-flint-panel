@@ -1,95 +1,102 @@
 #!/usr/bin/env bash
-# End-to-end: create a dashboard with Flint panels via Grafana HTTP API
-# (same capability surface as Grafana MCP update_dashboard).
+# HTTP create/read/patch contract smoke test; not an MCP connection test.
 set -euo pipefail
 
-GRAFANA_URL="${GRAFANA_URL:-http://localhost:3000}"
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PAYLOAD="${ROOT}/docs/templates/dashboard-create-payload.json"
-DASH_UID="flint-agent-demo"
+CONTRACT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+node "${CONTRACT_ROOT}/scripts/check-flint-contract.cjs"
+node - "${CONTRACT_ROOT}" <<'JS'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const root = process.argv[2];
+const { assertPanel } = require(path.join(root, 'scripts/check-flint-contract.cjs'));
+const base = (process.env.GRAFANA_URL || 'http://localhost:3000').replace(/\/$/, '');
+const uid = 'flint-e2e-' + randomUUID().replaceAll('-', '').slice(0, 24);
+const title = 'Flint contract smoke ' + uid;
+let created = false;
 
-echo "==> Health check ${GRAFANA_URL}"
-curl -sf "${GRAFANA_URL}/api/health" >/dev/null
+async function request(route, method = 'GET', body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (process.env.GRAFANA_TOKEN) {
+    headers.Authorization = 'Bearer ' + process.env.GRAFANA_TOKEN;
+  }
+  const response = await fetch(base + route, {
+    method,
+    headers,
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) {
+    throw new Error(method + ' ' + route + ': HTTP ' + response.status);
+  }
+  return response.json();
+}
 
-echo "==> Confirm Flint panel is registered in frontend settings"
-curl -sf "${GRAFANA_URL}/api/frontend/settings" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-p = (d.get("panels") or {}).get("ibumblebee-flint-panel")
-if not p:
-    raise SystemExit("FAIL: ibumblebee-flint-panel missing from frontend settings")
-print("OK: panel name=%s module=%s signature=%s" % (p.get("name"), p.get("module"), p.get("signature")))
-'
+async function readOwnedDashboard() {
+  const result = await request('/api/dashboards/uid/' + uid);
+  assert.equal(result.dashboard.uid, uid, 'temporary UID');
+  assert.equal(result.dashboard.title, title, 'temporary ownership title');
+  return result;
+}
 
-echo "==> Create/overwrite dashboard ${DASH_UID}"
-RESP="$(curl -sf -X POST "${GRAFANA_URL}/api/dashboards/db" \
-  -H 'Content-Type: application/json' \
-  --data-binary @"${PAYLOAD}")"
-echo "${RESP}" | python3 -m json.tool
+async function main() {
+  await request('/api/health');
+  const settings = await request('/api/frontend/settings');
+  assert(settings.panels?.['ibumblebee-flint-panel'], 'Flint plugin registered');
+  const payload = JSON.parse(fs.readFileSync(path.join(root, 'docs/templates/dashboard-create-payload.json'), 'utf8'));
+  payload.dashboard.uid = uid;
+  payload.dashboard.title = title;
+  payload.overwrite = false;
+  console.log('Creating test-owned dashboard ' + uid);
+  const response = await request('/api/dashboards/db', 'POST', payload);
+  created = true;
+  assert.equal(response.uid, uid, 'created dashboard UID');
+  const initial = await readOwnedDashboard();
+  assert.equal(initial.dashboard.panels.length, 2);
+  for (const panel of initial.dashboard.panels) {
+    assertPanel(panel, 'saved ' + panel.title);
+  }
 
-DASH_URL="$(echo "${RESP}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
-FULL_URL="${GRAFANA_URL}${DASH_URL}"
+  for (const asset of ['module.js', 'plugin.json']) {
+    const response = await fetch(base + '/public/plugins/ibumblebee-flint-panel/' + asset, { signal: AbortSignal.timeout(15000) });
+    assert(response.ok, 'static asset ' + asset);
+  }
 
-echo "==> Fetch dashboard and assert panel types"
-curl -sf "${GRAFANA_URL}/api/dashboards/uid/${DASH_UID}" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-panels = d["dashboard"]["panels"]
-types = [p.get("type") for p in panels]
-print("panel types:", types)
-if not types or any(t != "ibumblebee-flint-panel" for t in types):
-    raise SystemExit("FAIL: expected only ibumblebee-flint-panel panels")
-for p in panels:
-    opts = p.get("options") or {}
-    for key in ("chartType", "xField", "yField", "colorField", "specJson"):
-        if key not in opts:
-            raise SystemExit("FAIL: panel %s missing options.%s" % (p.get("title"), key))
-print("OK: %d Flint panels with complete options" % len(panels))
-'
+  const pie = JSON.parse(fs.readFileSync(path.join(root, 'docs/templates/panel-pie-flint-input.json'), 'utf8'));
+  pie.id = Math.max(...initial.dashboard.panels.map((panel) => panel.id || 0)) + 1;
+  pie.gridPos = { h: 8, w: 12, x: 0, y: 10 };
+  initial.dashboard.panels.push(pie);
+  await request('/api/dashboards/db', 'POST', {
+    dashboard: initial.dashboard,
+    folderUid: initial.meta?.folderUid || '',
+    overwrite: false,
+    message: 'Flint contract smoke: append source pie',
+  });
+  const patched = await readOwnedDashboard();
+  assert.equal(patched.dashboard.panels.length, 3);
+  assert.deepEqual(patched.dashboard.panels.slice(0, 2), initial.dashboard.panels.slice(0, 2), 'unrelated panels preserved');
+  for (const panel of patched.dashboard.panels) {
+    assertPanel(panel, 'patched ' + panel.title);
+  }
+  assert.deepEqual(patched.dashboard.panels.at(-1).options.flintInput, pie.options.flintInput, 'saved precompile pie');
+  console.log('Flint HTTP contract OK: canonical source created, read back and patched');
+}
 
-echo "==> Static plugin assets"
-curl -sf -o /dev/null -w "module.js %{http_code}\n" "${GRAFANA_URL}/public/plugins/ibumblebee-flint-panel/module.js"
-curl -sf -o /dev/null -w "plugin.json %{http_code}\n" "${GRAFANA_URL}/public/plugins/ibumblebee-flint-panel/plugin.json"
-
-echo "==> Patch: add a third Flint panel (specJson pie) via dashboard update"
-python3 - "${GRAFANA_URL}" "${DASH_UID}" "${ROOT}/docs/templates/panel-with-specjson.json" <<'PY'
-import json, sys, urllib.request
-
-base, uid, pie_path = sys.argv[1], sys.argv[2], sys.argv[3]
-with urllib.request.urlopen(f"{base}/api/dashboards/uid/{uid}") as response:
-    body = json.load(response)
-
-dash = body["dashboard"]
-panels = dash["panels"]
-next_id = max((panel.get("id") or 0) for panel in panels) + 1
-with open(pie_path, encoding="utf-8") as handle:
-    pie = json.load(handle)
-pie["id"] = next_id
-pie["gridPos"] = {"h": 8, "w": 12, "x": 0, "y": 10}
-# Avoid duplicate title if script is re-run
-panels = [panel for panel in panels if panel.get("title") != pie.get("title")]
-panels.append(pie)
-dash["panels"] = panels
-
-payload = json.dumps(
-    {"dashboard": dash, "overwrite": True, "message": "e2e patch add flint pie panel"}
-).encode()
-request = urllib.request.Request(
-    f"{base}/api/dashboards/db",
-    data=payload,
-    headers={"Content-Type": "application/json"},
-    method="POST",
-)
-with urllib.request.urlopen(request) as response:
-    print(json.load(response))
-
-with urllib.request.urlopen(f"{base}/api/dashboards/uid/{uid}") as response:
-    titles = [panel["title"] for panel in json.load(response)["dashboard"]["panels"]]
-if pie["title"] not in titles:
-    raise SystemExit("FAIL: patched pie panel missing")
-print("OK: patched panels ->", titles)
-PY
-
-echo
-echo "E2E OK"
-echo "Open: ${FULL_URL}"
+(async () => {
+  try {
+    await main();
+  } finally {
+    if (created) {
+      // Re-read ownership before deleting exactly the dashboard this run created.
+      await readOwnedDashboard();
+      await request('/api/dashboards/uid/' + uid, 'DELETE');
+      console.log('Removed temporary test-owned dashboard ' + uid);
+    }
+  }
+})().catch((error) => {
+  console.error(error.message);
+  console.error('If cleanup failed, inspect only temporary dashboard ' + uid);
+  process.exitCode = 1;
+});
+JS

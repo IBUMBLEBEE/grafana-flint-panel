@@ -36,7 +36,6 @@ describe('visualizationRevision', () => {
   it.each([
     ['renderBackend', 'plotly'],
     ['chartType', 'Line Chart'],
-    ['waterfallTotals', 'last'],
     ['xField', 'time'],
     ['yField', 'requests'],
     ['colorField', 'region'],
@@ -62,46 +61,11 @@ describe('visualizationRevision', () => {
     expect(revision.options).toMatchObject({
       renderBackend: 'plotly',
       chartType: 'Line Chart',
-      waterfallTotals: 'both',
+      waterfallTotals: 'auto',
       xField: 'time',
       yField: 'requests',
     });
     expect(options).toMatchObject({ renderBackend: 'echarts', chartType: 'Bar Chart', xField: 'region' });
-  });
-
-  it('uses stable object ordering for framework override values', () => {
-    const override = {
-      version: 1 as const,
-      backend: 'echarts' as const,
-      compilerVersion: '0.5.1',
-      sourceFingerprint: 'source-a',
-      patch: [{ op: 'replace' as const, path: '/textStyle', value: { fontSize: 12, color: 'red' } }],
-    };
-    const reordered = {
-      ...override,
-      patch: [{ op: 'replace' as const, path: '/textStyle', value: { color: 'red', fontSize: 12 } }],
-    };
-
-    const first = resolveVisualizationRevision({
-      ...defaultFlintOptions,
-      frameworkOverrides: { echarts: override },
-    });
-    const second = resolveVisualizationRevision({
-      ...defaultFlintOptions,
-      frameworkOverrides: { echarts: reordered },
-    });
-
-    expect(second.key).toBe(first.key);
-  });
-
-  it('treats a framework override deletion marker as an absent property', () => {
-    const absent = resolveVisualizationRevision({ ...defaultFlintOptions, frameworkOverrides: {} });
-    const deleted = resolveVisualizationRevision({
-      ...defaultFlintOptions,
-      frameworkOverrides: { echarts: undefined },
-    });
-
-    expect(deleted.key).toBe(absent.key);
   });
 
   it('captures every render field for preview and Undo', () => {
@@ -117,6 +81,9 @@ describe('visualizationRevision', () => {
 
     expect(snapshotWithDraft(defaultFlintOptions, pending)).toEqual(before);
     expect(snapshotFingerprint(before)).toBe(resolveVisualizationRevision({ ...defaultFlintOptions, ...before }).key);
-    expect(pending).toMatchObject({ waterfallTotals: 'last', source: 'undo' });
+    expect(pending).toMatchObject({
+      flintInput: { chart_spec: { chartProperties: { totals: 'last' } } },
+      source: 'undo',
+    });
   });
 });

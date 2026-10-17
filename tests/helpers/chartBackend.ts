@@ -69,7 +69,7 @@ export class EChartsDriver implements ChartBackendDriver {
     const bounds = await this.canvas.boundingBox();
     expect(bounds).not.toBeNull();
     for (const xFraction of [0.92, 0.86, 0.8]) {
-      for (const yFraction of [0.08, 0.13, 0.18, 0.23, 0.28, 0.33, 0.38, 0.43, 0.48]) {
+      for (const yFraction of [0.04, 0.06, 0.08, 0.1, 0.13, 0.18, 0.23, 0.28, 0.33, 0.38, 0.43, 0.48]) {
         const x = bounds!.x + bounds!.width * xFraction;
         const y = bounds!.y + bounds!.height * yFraction;
         await this.page.mouse.click(x, y);
@@ -286,7 +286,7 @@ export class VegaLiteDriver implements ChartBackendDriver {
     const bounds = await this.canvas.boundingBox();
     expect(bounds).not.toBeNull();
     for (const xFraction of [0.88, 0.92, 0.96]) {
-      for (const yFraction of [0.08, 0.13, 0.18, 0.23, 0.28, 0.33]) {
+      for (const yFraction of [0.04, 0.06, 0.08, 0.1, 0.13, 0.18, 0.23, 0.28, 0.33]) {
         await this.page.mouse.click(bounds!.x + bounds!.width * xFraction, bounds!.y + bounds!.height * yFraction);
         if ((await this.renderHost.getAttribute('data-legend-selection-active')) === 'true') {
           return;

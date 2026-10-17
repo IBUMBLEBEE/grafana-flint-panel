@@ -5,9 +5,9 @@
 Flint is an AI-assisted visualization panel for Grafana, powered by [Microsoft Flint](https://github.com/microsoft/flint-chart). Describe the chart you want in AI Chat, generate a proposal grounded in the current Grafana query frames, review it in a live preview, and explicitly apply it to the panel. Flint then renders the result with Apache ECharts, Vega-Lite, Plotly, or Chart.js.
 
 > [!WARNING]
-> **Project status: experimental, research-oriented proof of concept (POC).** This repository demonstrates and evaluates a Grafana integration with Flint and AI-generated visualization proposals; it is not production-ready and does not provide a stable compatibility or migration guarantee. Treat every AI proposal as untrusted: even a style-only request such as “change the colors” may currently regenerate chart type, field bindings, or Flint Spec. Review the preview and Chart Settings before Apply. See [Project status and maturity](docs/project-status.md).
+> **Project status: experimental, research-oriented proof of concept (POC).** This repository demonstrates and evaluates a Grafana integration with Flint and AI-generated visualization proposals; it is not production-ready and does not provide a stable compatibility or migration guarantee. Treat every AI proposal as untrusted: Create mode can regenerate chart type, field bindings or Flint Spec; Refine mode permits title, subtitle and field display-name changes, plus series colors for supported multi-measure charts. Review the preview and Chart Settings before Apply. See [Project status and maturity](docs/project-status.md).
 
-**AI Assist is the primary workflow.** Automatic chart selection and manual Chart Studio controls remain available as reliable fallbacks. Conversational generation uses the separately installed [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) plugin, keeping provider configuration and credentials outside the panel.
+**Chart Settings works without AI.** Select a chart type, bind query fields, choose multiple value fields, and adjust supported chart options in the Chart workbench. AI Chat is an optional way to modify the same Flint source. Conversational generation uses the separately installed [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) plugin, keeping provider configuration and credentials outside the panel.
 
 ![AI Chart Studio with live Panel preview and AI Chat](src/img/screenshots/ai-chart-studio-v0.3.1.gif)
 
@@ -52,17 +52,28 @@ AI Chat and chart generation require the companion [Flint AI Datasource](https:/
 
 1. Install Flint AI Datasource in the same Grafana instance, following its [project documentation](https://github.com/IBUMBLEBEE/grafana-flintai-datasource#readme).
 2. Add a Flint AI Datasource instance and configure its provider, API token, and model. Test the AI connection and save the datasource.
-3. Open Flint Panel's AI Chart Studio and select the configured model.
+3. Open Flint Panel's Chart workbench and select the configured model.
 
 The datasource manages AI requests and credentials. Keep the panel's queries connected to the business datasource that supplies the chart data.
+
+### Create a visualization without AI
+
+1. Run the Panel queries and apply Grafana transformations to prepare the data.
+2. Expand **Chart settings → Open Chart workbench → Chart Settings**.
+3. Choose a chart type. Field controls adapt to the chart, including group, pie value/category, and heatmap color-value fields.
+4. Select one or more numeric Y fields for supported line, area and bar charts. Auto shows inferred fields; clearing a value selection restores Auto.
+5. Adjust the available chart options and Tooltip. Default/Reset removes an option override.
+6. Review **UI Preview**, then **Apply to panel**. Save the dashboard to persist the changes.
+
+Compatible bindings and options survive chart switches. Missing query fields require replacement. AI proposals preserve omitted compatible settings and use the current preview draft as their starting point. Under Vega-Lite, **Theme preset** offers the installed Flint official presets and **Default (Flint)**. Other backends disable theme selection and show an unsupported notice; the saved preset is retained for switching back to Vega-Lite. Theme changes use preview and Apply; custom theme objects are not supported.
 
 ### Create a visualization with AI Assist
 
 1. Add a panel to a Grafana dashboard and configure its query.
 2. Select the **Flint** visualization.
-3. Expand **AI Assist** and open **AI Chart Studio**.
+3. Expand **Chart settings** and open **Chart workbench**.
 4. Select a configured model, describe the chart or change you want in **AI Chat**, and send the request.
-5. Select **Generate proposal** to turn the conversation and current query context into a chart draft.
+5. Select **Generate proposal**. AI reads the conversation and current chart to choose local adjustments or a redesign; ambiguous requests get a clarification question. Review the stated scope and preview before Apply.
 6. Review the live preview and, if needed, refine the request or adjust Chart Settings, Flint Spec, or UI Framework Spec.
 7. Select **Apply to panel** to commit the draft, or **Discard edits** to leave the panel unchanged.
 
@@ -86,11 +97,12 @@ Renderer code is loaded on demand, so opening a normal Flint panel does not eage
 Chart Studio is the AI-assisted chart creation and review workspace inside the Grafana panel editor:
 
 - **AI Chat** accepts natural-language chart requests and follow-up refinements based on the current data context.
+- **Automatic proposal planning** determines local adjustments or a redesign from the conversation and current chart, and shows the intended scope for review.
 - **Generate proposal** converts the conversation into a validated, unapplied chart draft.
 - **UI Preview** renders the current panel or the proposed draft with the actual query frames.
 - **Chart Settings** provides reviewable chart type and field mapping controls.
 - **Flint Spec** exposes the semantic visualization specification.
-- **UI Framework Spec** exposes the compiled backend-native configuration.
+- **UI Framework Spec** exposes read-only compiled backend-native configuration.
 - **Apply to panel** is the explicit boundary between an AI proposal and the saved panel configuration.
 
 Drafts are tied to the current dashboard, panel, query, and field schema. If that context changes, stale drafts are prevented from being applied.
@@ -102,18 +114,23 @@ Grafana query frames
   -> build a redacted data hint and field schema
   -> combine them with the AI Chat request and conversation
   -> generate and validate a Flint chart proposal
-  -> stage the proposal in the live preview
-  -> compile a Flint chart specification
-  -> compile for the selected rendering backend
-  -> replay an optional data-free framework override
-  -> apply explicitly and render inside the Grafana panel
+  -> stage a data-free Flint source proposal
+  -> bind current query rows and host dimensions
+  -> compile for the selected rendering backend and preview
+  -> explicitly Apply the source to panel options
+  -> save the dashboard to persist it
+  -> rebind and recompile on query refresh or resize
 ```
 
 The AI workflow uses the query frames already attached to the Grafana panel. It does not introduce a second business-data selector. After a proposal is applied, the panel can continue rendering it without an active AI request.
 
 ## AI Assist setup and safety
 
-Install and configure [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) as described in [Install the AI dependency](#install-the-ai-dependency), then select its model from AI Chart Studio. Automatic and manual chart creation remain available when that service is unavailable.
+After applying a chart, ask in chat to undo or restore an earlier version. AI selects a saved version and the Panel prepares an exact snapshot preview; **Restore this version** commits it after your review. **Undo last apply** also prepares a preview. **Chart history** offers earlier snapshots directly. Up to 10 data-free versions are retained in this tab's session storage, including the original source, Auto bindings and series colors. Clearing chat keeps chart history. Changes outside recorded history or to the query invalidate restoration until a new application starts a matching history. Saving the Dashboard remains a separate Grafana action. Diagnostic exports include the history and restore availability.
+
+For development debugging, use **Export diagnostics** (the download icon in the AI Chat header). It downloads a JSON file with the retained conversation, current source and proposal, preview/errors, query field metadata, and the last 20 host AI calls in this editor. Credentials, query rows and data samples are excluded. The trace is kept in memory, starts when the editor mounts, and resets when chat is cleared; backend internal retries are not included. Export does not apply or save a chart.
+
+Install and configure [Flint AI Datasource](https://github.com/IBUMBLEBEE/grafana-flintai-datasource) as described in [Install the AI dependency](#install-the-ai-dependency), then select its model from the Chart workbench. Automatic and manual chart creation remain available when that service is unavailable.
 
 The integration follows these boundaries:
 
@@ -121,11 +138,14 @@ The integration follows these boundaries:
 - Flint Panel and dashboard JSON do not store provider API keys.
 - Chat history is bounded and temporary to the browser session.
 - Provider-facing data hints are redacted, size-limited, and omit business datasource identities.
-- Ordinary requests use chart and field selections; advanced requests use a structured, data-free Flint `chartInput`.
+- Provider responses are normalized to canonical, data-free Flint source before preview or Apply; legacy field selections are accepted only at the Provider compatibility boundary.
+- AI plans the change from the full conversation. Local adjustments include the current source, lock data semantics and use the same guards during repair; a failed local change never retries as a redesign.
 - AI-generated options are validated against the current query fields and compiled by the installed `flint-chart` runtime.
-- One bounded repair may receive the exact compiler error; a failed repair is shown explicitly before scalar fallback.
-- Flint Spec and UI Framework overrides cannot embed query data rows.
+- One bounded repair may receive the exact compiler error. Refine never falls back to scalar fields; Create can use genuine legacy selections only after validation and compilation, with the rejection reason shown.
+- The saved Flint source cannot embed query rows. Compiled UI Framework Spec is read-only.
 - A proposal never changes the panel until the user selects Apply.
+
+Mock Provider browser checks exercise the Panel's safeguards without API keys; they do not verify real LLM or separately installed datasource compatibility.
 
 ## Panel options contract
 
@@ -135,21 +155,20 @@ Agents and provisioning tools can use the following shape:
 {
   "type": "ibumblebee-flint-panel",
   "options": {
+    "stateVersion": 1,
     "renderBackend": "echarts",
-    "chartType": "Line Chart",
-    "xField": "",
-    "yField": "",
-    "colorField": "",
-    "specJson": "",
+    "bindingMode": "auto",
+    "flintInput": {
+      "chart_spec": { "chartType": "Line Chart", "encodings": {} }
+    },
     "ai": {
-      "providerUid": "",
       "lastPrompt": ""
     }
   }
 }
 ```
 
-External agents should write Flint options and leave the internal `frameworkOverrides` field unset. See the complete [options schema](docs/schemas/flint-panel-options.schema.json) and [Grafana MCP contract](docs/agent-flint-grafana.md).
+External agents should write structured, data-free `flintInput`. Chart Settings and Flint Spec edit the same source. Backend output is compiled at runtime; framework overrides are no longer supported. See the complete [options schema](docs/schemas/flint-panel-options.schema.json) and [Grafana MCP contract](docs/agent-flint-grafana.md).
 
 ## Development and verification
 
@@ -157,6 +176,7 @@ Run the same checks used by CI:
 
 ```bash
 npm run format:check
+npm run check:flint-contract
 npm run typecheck
 npm run lint
 npm run test:ci

@@ -1,6 +1,3 @@
-import type { ChartAssemblyInput } from 'flint-chart';
-
-import { createFrameworkOverride } from '../src/flint/frameworkOverride';
 import { expect, test } from './fixtures';
 import { ChartJsDriver, EChartsDriver, PlotlyDriver, VegaLiteDriver } from './helpers/chartBackend';
 
@@ -85,15 +82,17 @@ test('keeps Plotly hover and legend interactions active after backend switching'
 }) => {
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '6' });
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
-  await studio.getByRole('combobox', { name: 'UI framework' }).click();
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  await studio.getByRole('combobox', { name: 'Renderer' }).click();
   await page.getByRole('option', { name: /Plotly/ }).click();
+  await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
   await expect(page.getByTestId('flint-workbench-apply-draft')).toBeEnabled();
   await page.getByTestId('flint-workbench-apply-draft').click();
   await page
-    .getByRole('dialog', { name: 'AI Chart Studio' })
+    .getByRole('dialog', { name: 'Chart workbench' })
     .getByRole('button', { name: 'Close', exact: true })
     .click();
   const chart = page.getByTestId('flint-panel-chart');
@@ -113,15 +112,17 @@ test('keeps Chart.js hover and legend interactions active after backend switchin
 }) => {
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '6' });
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
-  await studio.getByRole('combobox', { name: 'UI framework' }).click();
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  await studio.getByRole('combobox', { name: 'Renderer' }).click();
   await page.getByRole('option', { name: /Chart\.js/ }).click();
+  await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
   await expect(page.getByTestId('flint-workbench-apply-draft')).toBeEnabled();
   await page.getByTestId('flint-workbench-apply-draft').click();
   await page
-    .getByRole('dialog', { name: 'AI Chart Studio' })
+    .getByRole('dialog', { name: 'Chart workbench' })
     .getByRole('button', { name: 'Close', exact: true })
     .click();
   const driver = new ChartJsDriver(page, page.getByTestId('flint-panel-chart'));
@@ -140,15 +141,17 @@ test('keeps Vega-Lite hover and legend interactions active after backend switchi
 }) => {
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '6' });
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
-  await studio.getByRole('combobox', { name: 'UI framework' }).click();
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  await studio.getByRole('combobox', { name: 'Renderer' }).click();
   await page.getByRole('option', { name: /Vega-Lite/ }).click();
+  await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
   await expect(page.getByTestId('flint-workbench-apply-draft')).toBeEnabled();
   await page.getByTestId('flint-workbench-apply-draft').click();
   await page
-    .getByRole('dialog', { name: 'AI Chart Studio' })
+    .getByRole('dialog', { name: 'Chart workbench' })
     .getByRole('button', { name: 'Close', exact: true })
     .click();
   const driver = new VegaLiteDriver(page, page.getByTestId('flint-panel-chart'));
@@ -168,7 +171,7 @@ test('keeps Hover and Legend active for every backend in the Studio preview', as
   test.setTimeout(60_000);
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '6' });
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
   const chart = page.getByTestId('flint-ai-dialog-chart');
@@ -181,8 +184,16 @@ test('keeps Hover and Legend active for every backend in the Studio preview', as
   await echarts.expectSeriesState('revenue', false);
 
   const selectBackend = async (name: RegExp) => {
-    await studio.getByRole('combobox', { name: 'UI framework' }).click();
+    await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+    await studio.getByRole('combobox', { name: 'Renderer' }).click();
     await page.getByRole('option', { name }).click();
+    await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
+    // Clear draft controls before exercising legend items underneath the status overlay.
+    await expect(studio.getByTestId('flint-workbench-apply-draft')).toBeEnabled();
+    await studio.getByTestId('flint-workbench-apply-draft').click();
+    const notice = studio.getByTestId('flint-workbench-notice');
+    await expect(notice).toBeVisible();
+    await notice.getByRole('button').click();
   };
 
   await selectBackend(/Plotly/);
@@ -227,7 +238,7 @@ test('renders and configures the 2025 Waterfall demo across Flint backends', asy
   await expect(chart).toContainText('How the player base moved through 2025');
   await expect(page.getByText('Flint compile error')).toHaveCount(0);
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
   await studio.getByRole('tab', { name: 'Chart Settings' }).click();
@@ -242,8 +253,10 @@ test('renders and configures the 2025 Waterfall demo across Flint backends', asy
     { label: 'Chart.js', value: 'chartjs' },
     { label: 'Plotly', value: 'plotly' },
   ]) {
-    await studio.getByRole('combobox', { name: 'UI framework' }).click();
+    await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+    await studio.getByRole('combobox', { name: 'Renderer' }).click();
     await page.getByRole('option', { name: backend.label }).click();
+    await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
     await expect(page.getByTestId('flint-ai-dialog-chart')).toHaveAttribute('data-render-backend', backend.value);
     await expect(page.getByText('Flint compile error')).toHaveCount(0);
   }
@@ -263,7 +276,7 @@ test('keeps the Plotly dialog preview inside the workbench pane', async ({
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '7' });
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
 
   const previewPane = page.getByTestId('flint-ai-studio').getByRole('region', { name: 'Live preview' });
@@ -287,15 +300,17 @@ test('keeps Studio actions and keyboard explanations accessible at supported vie
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '6' });
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
-  const dialog = page.getByRole('dialog', { name: 'AI Chart Studio' });
+  const dialog = page.getByRole('dialog', { name: 'Chart workbench' });
   const previewPane = studio.getByRole('region', { name: 'Live preview' });
   const chatPane = studio.getByRole('region', { name: 'AI chat and proposal controls' });
 
-  await studio.getByRole('combobox', { name: 'UI framework' }).click();
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  await studio.getByRole('combobox', { name: 'Renderer' }).click();
   await page.getByRole('option', { name: /Plotly/ }).click();
+  await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
   await studio.getByRole('tab', { name: 'Flint Spec' }).click();
   const draftEditor = studio.getByRole('tabpanel', { name: 'Flint Spec' }).locator('.monaco-editor[role="code"]');
   await draftEditor.locator('.view-lines').click();
@@ -342,15 +357,17 @@ test('keeps Studio actions and keyboard explanations accessible at supported vie
 
   await studio.getByRole('button', { name: 'Discard edits' }).click();
   await studio.getByRole('tab', { name: 'UI Framework Spec' }).click();
-  const aboutOverride = studio.getByRole('button', { name: /Generated from the validated Flint Spec/ });
+  const aboutOutput = studio.getByRole('button', {
+    name: /About compiled framework output|Read-only output compiled from the Flint source/,
+  });
   for (let step = 0; step < 8; step += 1) {
-    if (await aboutOverride.evaluate((element) => document.activeElement === element)) {
+    if (await aboutOutput.evaluate((element) => document.activeElement === element)) {
       break;
     }
     await page.keyboard.press('Tab');
   }
-  await expect(aboutOverride).toBeFocused();
-  await expect(page.getByRole('tooltip')).toContainText('Apply stores only data-free display changes');
+  await expect(aboutOutput).toBeFocused();
+  await expect(page.getByRole('tooltip')).toContainText('Read-only output compiled from the Flint source');
 });
 
 test('settles the preview after switching from Plotly to Vega-Lite', async ({
@@ -361,18 +378,22 @@ test('settles the preview after switching from Plotly to Vega-Lite', async ({
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
 
-  await studio.getByRole('combobox', { name: 'UI framework' }).click();
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  await studio.getByRole('combobox', { name: 'Renderer' }).click();
   await page.getByRole('option', { name: /Plotly/ }).click();
+  await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
   const previewChart = page.getByTestId('flint-ai-dialog-chart');
   await expect(previewChart).toHaveAttribute('data-render-backend', 'plotly');
   await expect(previewChart.locator('.svg-container')).toBeVisible();
 
-  await studio.getByRole('combobox', { name: 'UI framework' }).click();
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  await studio.getByRole('combobox', { name: 'Renderer' }).click();
   await page.getByRole('option', { name: /Vega-Lite/ }).click();
+  await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
 
   await expect(previewChart).toHaveAttribute('data-render-backend', 'vegalite');
   await expect(previewChart.locator('canvas')).toBeVisible();
@@ -390,23 +411,33 @@ test('renders and fills the current-panel preview on the first switch to Vega-Li
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '6' });
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
   const previewChart = page.getByTestId('flint-ai-dialog-chart');
   await expect(previewChart).toHaveAttribute('data-render-backend', 'echarts');
 
-  await studio.getByRole('combobox', { name: 'UI framework' }).click();
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  await studio.getByRole('combobox', { name: 'Renderer' }).click();
   await page.getByRole('option', { name: /Vega-Lite/ }).click();
+  await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
 
   await expect(previewChart).toHaveAttribute('data-render-backend', 'vegalite');
   const canvas = previewChart.locator('canvas');
   await expect(canvas).toBeVisible();
-  const [previewBounds, canvasBounds] = await Promise.all([previewChart.boundingBox(), canvas.boundingBox()]);
-  expect(previewBounds).not.toBeNull();
-  expect(canvasBounds).not.toBeNull();
-  expect(canvasBounds!.width).toBeGreaterThanOrEqual(previewBounds!.width * 0.8);
-  expect(canvasBounds!.height).toBeLessThanOrEqual(previewBounds!.height + 1);
+  await expect
+    .poll(() =>
+      previewChart.evaluate((element) => {
+        const canvas = element.querySelector('canvas');
+        if (!canvas) {
+          return false;
+        }
+        const previewBounds = element.getBoundingClientRect();
+        const canvasBounds = canvas.getBoundingClientRect();
+        return canvasBounds.width >= previewBounds.width * 0.8 && canvasBounds.height <= previewBounds.height + 1;
+      })
+    )
+    .toBe(true);
 });
 
 test('shows hover details for a Vega-Lite grouped multi-series preview', async ({
@@ -417,11 +448,13 @@ test('shows hover details for a Vega-Lite grouped multi-series preview', async (
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '6' });
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
-  await studio.getByRole('combobox', { name: 'UI framework' }).click();
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  await studio.getByRole('combobox', { name: 'Renderer' }).click();
   await page.getByRole('option', { name: /Vega-Lite/ }).click();
+  await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
 
   const driver = new VegaLiteDriver(page, page.getByTestId('flint-ai-dialog-chart'));
   await driver.waitReady();
@@ -439,14 +472,16 @@ test('settles the Waterfall preview after switching from Plotly to Vega-Lite', a
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '7' });
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
   const previewChart = page.getByTestId('flint-ai-dialog-chart');
   await expect(previewChart).toHaveAttribute('data-render-backend', 'plotly');
 
-  await studio.getByRole('combobox', { name: 'UI framework' }).click();
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  await studio.getByRole('combobox', { name: 'Renderer' }).click();
   await page.getByRole('option', { name: /Vega-Lite/ }).click();
+  await studio.getByRole('tab', { name: 'UI Preview', exact: true }).click();
 
   await expect(previewChart).toHaveAttribute('data-render-backend', 'vegalite');
   const canvas = previewChart.locator('canvas');
@@ -454,11 +489,19 @@ test('settles the Waterfall preview after switching from Plotly to Vega-Lite', a
   await expect(page.getByText('Flint compile error')).toHaveCount(0);
   await expect(page.getByText('Preview failed')).toHaveCount(0);
 
-  const [previewBounds, canvasBounds] = await Promise.all([previewChart.boundingBox(), canvas.boundingBox()]);
-  expect(previewBounds).not.toBeNull();
-  expect(canvasBounds).not.toBeNull();
-  expect(canvasBounds!.width).toBeGreaterThanOrEqual(previewBounds!.width * 0.8);
-  expect(canvasBounds!.height).toBeLessThanOrEqual(previewBounds!.height + 1);
+  await expect
+    .poll(() =>
+      previewChart.evaluate((element) => {
+        const canvas = element.querySelector('canvas');
+        if (!canvas) {
+          return false;
+        }
+        const previewBounds = element.getBoundingClientRect();
+        const canvasBounds = canvas.getBoundingClientRect();
+        return canvasBounds.width >= previewBounds.width * 0.8 && canvasBounds.height <= previewBounds.height + 1;
+      })
+    )
+    .toBe(true);
 
   const canvasReplacements = await previewChart.evaluate(
     (element) =>
@@ -491,7 +534,7 @@ test('uses Chart Settings as the reviewable manual configuration entry', async (
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
   const panelChart = page.getByTestId('flint-panel-chart');
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await expect(page.getByTestId('flint-ai-current-chart')).toContainText('Current chart: Auto · Apache ECharts');
   await page.getByTestId('flint-ai-current-chart').hover();
   await expect(page.getByRole('tooltip')).toContainText('1 frame · 5 rows · 3 fields');
@@ -507,9 +550,9 @@ test('uses Chart Settings as the reviewable manual configuration entry', async (
   await settings.getByRole('combobox', { name: 'Chart type' }).click();
   await page.getByRole('option', { name: 'Bar Chart', exact: true }).click();
   await settings.getByRole('combobox', { name: 'X field' }).click();
-  await page.getByRole('option', { name: 'Label', exact: true }).click();
+  await page.getByRole('option', { name: /^Label(?: string)?$/ }).click();
   await settings.getByRole('combobox', { name: 'Y field' }).click();
-  await page.getByRole('option', { name: 'Value', exact: true }).click();
+  await page.getByRole('option', { name: /^Value(?: number)?$/ }).click();
 
   await expect(page.getByTestId('flint-ai-dialog-chart')).toHaveAttribute('data-chart-type', 'Bar Chart');
   await expect(panelChart).toHaveAttribute('data-chart-type', 'auto');
@@ -533,12 +576,12 @@ test('manually edits Flint Spec, applies, and undoes without selecting an AI pro
   await expect(page.getByTestId('flint-panel-chart')).toHaveAttribute('data-chart-type', 'auto');
   await expect(discardPanelChanges).toBeDisabled();
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await expect(page.getByTestId('flint-ai-current-chart')).toContainText('Current chart: Auto · Apache ECharts');
   await page.getByTestId('flint-ai-open-studio').click();
 
   const studio = page.getByTestId('flint-ai-studio');
-  const dialog = page.getByRole('dialog', { name: 'AI Chart Studio' });
+  const dialog = page.getByRole('dialog', { name: 'Chart workbench' });
   // Grafana 12.3's TabsBar does not forward its aria-label; the Studio contains one tablist.
   const workbenchTabs = studio.getByRole('tablist');
   await expect(workbenchTabs.getByRole('tab', { name: 'UI Preview' })).toBeVisible();
@@ -552,7 +595,7 @@ test('manually edits Flint Spec, applies, and undoes without selecting an AI pro
   const flintSpecEditor = flintSpecPanel.locator('.monaco-editor[role="code"]');
   await expect(flintSpecEditor).toBeVisible();
   expect((await flintSpecEditor.boundingBox())?.height).toBeGreaterThan(240);
-  await expect(flintSpecEditor).toContainText('semantic_types');
+  await expect(flintSpecEditor).toContainText('"chartType": "auto"');
   await expect(flintSpecEditor).not.toContainText('Current Grafana Panel DataFrame');
   await flintSpecEditor.locator('.view-lines').click();
   await page.keyboard.press('Control+A');
@@ -589,12 +632,12 @@ test('manually edits Flint Spec, applies, and undoes without selecting an AI pro
   await paneSeparator.focus();
   await paneSeparator.press('End');
   await expect(paneSeparator).toHaveAttribute('aria-valuenow', '70');
-  await studio.getByRole('button', { name: 'Hide AI Chat' }).click();
+  await page.getByRole('dialog', { name: 'Chart workbench' }).getByRole('button', { name: 'Hide AI Chat' }).click();
   await expect(chatPane).toBeHidden();
   await expect(paneSeparator).toBeHidden();
   const collapsedPreviewBounds = await previewPane.boundingBox();
   expect(collapsedPreviewBounds!.width).toBeGreaterThan(resizedPreviewBounds!.width);
-  await studio.getByRole('button', { name: 'Show AI Chat' }).click();
+  await page.getByRole('dialog', { name: 'Chart workbench' }).getByRole('button', { name: 'Show AI Chat' }).click();
   await expect(chatPane).toBeVisible();
   await expect(paneSeparator).toBeVisible();
   await expect(paneSeparator).toHaveAttribute('aria-valuenow', '70');
@@ -609,7 +652,8 @@ test('manually edits Flint Spec, applies, and undoes without selecting an AI pro
   expect(resizedDialogBounds?.height).toBe(600);
   expect(resizedDialogBounds?.width).not.toBe(initialDialogBounds?.width);
 
-  const frameworkSelector = studio.getByRole('combobox', { name: 'UI framework' });
+  await studio.getByRole('tab', { name: 'Chart Settings', exact: true }).click();
+  const frameworkSelector = studio.getByRole('combobox', { name: 'Renderer' });
   await frameworkSelector.click();
   await page.getByRole('option', { name: /Chart\.js/ }).click();
   await expect(page.getByTestId('flint-ai-dialog-chart')).toHaveAttribute('data-render-backend', 'chartjs');
@@ -624,13 +668,16 @@ test('manually edits Flint Spec, applies, and undoes without selecting an AI pro
   await expect(panelChart).toHaveAttribute('data-render-backend', 'echarts');
 
   await page.getByTestId('flint-workbench-apply-draft').click();
-  const successNotice = studio.getByText('Applied the proposal to Panel options.', { exact: true });
+  const successNotice = studio.getByText(
+    'Applied the changes to Panel options. Dashboard changes still require Save.',
+    { exact: true }
+  );
   await expect(successNotice).toBeVisible();
   await expect(successNotice).toHaveCount(0, { timeout: 5500 });
   await expect(panelChart).toHaveAttribute('data-render-backend', 'chartjs');
   await expect(panelChart).toHaveAttribute('data-preview-active', 'false');
   await page
-    .getByRole('dialog', { name: 'AI Chart Studio' })
+    .getByRole('dialog', { name: 'Chart workbench' })
     .getByRole('button', { name: 'Close', exact: true })
     .click();
   await expect(discardPanelChanges).toBeEnabled();
@@ -638,6 +685,8 @@ test('manually edits Flint Spec, applies, and undoes without selecting an AI pro
   await page.getByTestId('flint-ai-open-studio').click();
   await expect(page.getByTestId('flint-ai-undo-apply')).toBeEnabled();
   await page.getByTestId('flint-ai-undo-apply').click();
+  await expect(page.getByTestId('flint-ai-apply-draft')).toBeEnabled();
+  await page.getByTestId('flint-ai-apply-draft').click();
   await expect(panelChart).toHaveAttribute('data-chart-type', 'auto');
   await expect(panelChart).toHaveAttribute('data-render-backend', 'echarts');
 });
@@ -650,9 +699,9 @@ test('confirms before closing with uncommitted work and discards it only after a
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
-  const dialog = page.getByRole('dialog', { name: 'AI Chart Studio' });
+  const dialog = page.getByRole('dialog', { name: 'Chart workbench' });
   const close = dialog.getByRole('button', { name: 'Close', exact: true });
   const studio = page.getByTestId('flint-ai-studio');
   await studio.getByRole('tab', { name: 'Flint Spec' }).click();
@@ -694,13 +743,27 @@ test('edits, validates, and applies a data-free Flint Spec without opening previ
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
   const discardPanelChanges = page.getByRole('button', { name: /^(Discard panel changes|Discard)$/ });
 
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
   const studio = page.getByTestId('flint-ai-studio');
   await studio.getByRole('tab', { name: 'Flint Spec' }).click();
   const specPanel = studio.getByRole('tabpanel', { name: 'Flint Spec' });
   const specEditor = specPanel.locator('.monaco-editor[role="code"]');
   const specInspector = specPanel.getByRole('complementary', { name: 'Flint Spec inspector' });
+
+  await specEditor.locator('.view-lines').click();
+  await page.keyboard.press('Control+A');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.insertText(
+    JSON.stringify({
+      chart_spec: { chartType: 'Bar Chart', encodings: { x: 'Label', y: 'Value' } },
+      options: { addTooltips: 'false' },
+    })
+  );
+  await expect(specInspector).toContainText('options.addTooltips must be boolean');
+  await expect(page.getByTestId('flint-workbench-apply-draft')).toBeDisabled();
+  await expect(page.getByTestId('flint-panel-chart')).toHaveAttribute('data-chart-type', 'auto');
+  await expect(studio.getByRole('alert', { name: 'AI Assist error' })).toHaveCount(0);
 
   await specEditor.locator('.view-lines').click();
   await page.keyboard.press('Control+A');
@@ -722,243 +785,10 @@ test('edits, validates, and applies a data-free Flint Spec without opening previ
   await expect(page.getByTestId('flint-panel-chart')).toHaveAttribute('data-preview-active', 'false');
   await expect(page.getByText('Flint compile error')).toHaveCount(0);
   await page
-    .getByRole('dialog', { name: 'AI Chart Studio' })
+    .getByRole('dialog', { name: 'Chart workbench' })
     .getByRole('button', { name: 'Close', exact: true })
     .click();
   await expect(discardPanelChanges).toBeEnabled();
-});
-
-test('edits and applies the compiled UI Framework Spec while keeping data runtime-owned', async ({
-  gotoPanelEditPage,
-  readProvisionedDashboard,
-  page,
-}) => {
-  const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
-  const panelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
-
-  await panelEditPage.getCustomOptions('AI Assist').expand();
-  await page.getByTestId('flint-ai-open-studio').click();
-  const studio = page.getByTestId('flint-ai-studio');
-  await studio.getByRole('tab', { name: 'UI Framework Spec' }).click();
-  const frameworkPanel = studio.getByRole('tabpanel', { name: 'UI Framework Spec' });
-  const frameworkEditor = frameworkPanel.locator('.monaco-editor[role="code"]');
-  const frameworkInspector = frameworkPanel.getByRole('complementary', { name: 'UI Framework Spec inspector' });
-
-  await expect(frameworkInspector).toContainText('Valid UI Framework Spec');
-  await frameworkEditor.locator('.view-lines').click();
-  await page.keyboard.press('Control+f');
-  const findInput = frameworkPanel.getByRole('textbox', { name: 'Find' });
-  await findInput.fill('"trigger": "axis"');
-  await frameworkPanel.getByRole('button', { name: 'Toggle Replace' }).click();
-  await frameworkPanel.getByRole('textbox', { name: 'Replace' }).fill('"trigger": "item"');
-  await frameworkPanel.getByRole('button', { name: /^Replace \(/ }).click();
-  await frameworkPanel.getByRole('button', { name: 'Close (Escape)' }).click();
-
-  await expect(frameworkInspector).toContainText('Valid UI Framework Spec');
-  await frameworkInspector.getByRole('button', { name: /Generated from the validated Flint Spec/ }).hover();
-  await expect(page.getByRole('tooltip')).toContainText('Apply stores only data-free display changes');
-  await expect(page.getByTestId('flint-spec-draft-bar')).toContainText(
-    'Preview ready · UI Framework Spec changes are not applied.'
-  );
-  await expect(page.getByTestId('flint-ai-proposal')).toHaveCount(0);
-  await expect(page.getByTestId('flint-ai-apply-draft')).toHaveCount(0);
-  await expect(page.getByTestId('flint-workbench-apply-draft')).toBeEnabled();
-  await page.getByTestId('flint-workbench-apply-draft').click();
-
-  await expect(page.getByTestId('flint-spec-draft-bar')).toHaveCount(0);
-  await studio.getByRole('tab', { name: 'UI Framework Spec' }).click();
-  await expect(studio.getByRole('complementary', { name: 'UI Framework Spec inspector' })).toContainText(
-    'Saved override applied'
-  );
-  await expect(studio.getByRole('tabpanel', { name: 'UI Framework Spec' })).toContainText('"trigger": "item"');
-
-  await studio.getByRole('button', { name: 'Reset override' }).click();
-  await expect(page.getByTestId('flint-spec-draft-bar')).toContainText(
-    'Preview ready · UI Framework Spec changes are not applied.'
-  );
-  await expect(page.getByTestId('flint-workbench-apply-draft')).toBeEnabled();
-  await page.getByTestId('flint-workbench-apply-draft').click();
-  await expect(page.getByTestId('flint-spec-draft-bar')).toHaveCount(0);
-  await studio.getByRole('tab', { name: 'UI Framework Spec' }).click();
-  await expect(studio.getByRole('complementary', { name: 'UI Framework Spec inspector' })).toContainText(
-    'Valid UI Framework Spec'
-  );
-  await expect(studio.getByRole('tabpanel', { name: 'UI Framework Spec' })).toContainText('"trigger": "axis"');
-});
-
-test('persists a data-free Framework Override through query-value refresh and dashboard reload', async ({
-  gotoPanelEditPage,
-  readProvisionedDashboard,
-  request,
-  page,
-}) => {
-  const source = await readProvisionedDashboard({ fileName: 'dashboard.json' });
-  const sourceResponse = await request.get(`/api/dashboards/uid/${source.uid}`, { timeout: 10_000 });
-  expect(sourceResponse.ok()).toBe(true);
-  const sourceBody = (await sourceResponse.json()) as {
-    dashboard: {
-      panels: Array<{
-        id: number;
-        options: Record<string, unknown>;
-        targets?: Array<Record<string, unknown> & { rawFrameContent?: string }>;
-      }>;
-    } & Record<string, unknown>;
-  };
-  const sourcePanel = sourceBody.dashboard.panels.find((panel) => panel.id === 1);
-  expect(sourcePanel).toBeDefined();
-  const input: ChartAssemblyInput = {
-    data: {
-      values: [
-        { Time: 1609459200000, Label: 'A', Value: 10 },
-        { Time: 1609462800000, Label: 'B', Value: 20 },
-      ],
-    },
-    semantic_types: { Time: 'Date', Label: 'Category', Value: 'Quantity' },
-    options: { addTooltips: true },
-    chart_spec: {
-      chartType: 'Line Chart',
-      encodings: {
-        x: { field: 'Time', type: 'temporal' },
-        y: { field: 'Value', type: 'quantitative' },
-        color: { field: 'Label', type: 'nominal' },
-      },
-      canvasSize: { width: 800, height: 450 },
-      baseSize: { width: 800, height: 450 },
-    },
-  };
-  const override = createFrameworkOverride({
-    backend: 'echarts',
-    input,
-    generated: { tooltip: { trigger: 'axis' } },
-    edited: { tooltip: { trigger: 'item' } },
-  });
-  expect(override).toBeDefined();
-  const copy = {
-    ...sourceBody.dashboard,
-    id: null,
-    uid: null,
-    title: `Flint override persistence ${Date.now()}`,
-    version: 0,
-    panels: sourceBody.dashboard.panels.map((panel) =>
-      panel.id === 1 ? { ...panel, options: { ...panel.options, frameworkOverrides: { echarts: override } } } : panel
-    ),
-  };
-  const createResponse = await request.post('/api/dashboards/db', {
-    data: { dashboard: copy, folderId: 0, overwrite: false },
-    timeout: 10_000,
-  });
-  expect(createResponse.ok()).toBe(true);
-  const created = (await createResponse.json()) as { uid: string };
-
-  try {
-    const savedResponse = await request.get(`/api/dashboards/uid/${created.uid}`, { timeout: 10_000 });
-    const savedBody = (await savedResponse.json()) as {
-      dashboard: {
-        panels: Array<{
-          id: number;
-          options: Record<string, unknown>;
-          targets?: Array<Record<string, unknown> & { rawFrameContent?: string }>;
-        }>;
-      } & Record<string, unknown>;
-    };
-    const savedOptions = savedBody.dashboard.panels.find((panel) => panel.id === 1)?.options;
-    const overrides = savedOptions?.frameworkOverrides as {
-      echarts?: { patch?: Array<{ path: string; value?: unknown }> };
-    };
-    expect(overrides.echarts?.patch).toEqual(
-      expect.arrayContaining([expect.objectContaining({ path: '/tooltip/trigger', value: 'item' })])
-    );
-    expect(JSON.stringify(overrides)).not.toContain('1609459200000');
-    expect(JSON.stringify(overrides)).not.toContain('"rows"');
-
-    const refreshedDashboard = {
-      ...savedBody.dashboard,
-      panels: savedBody.dashboard.panels.map((panel) =>
-        panel.id === 1
-          ? {
-              ...panel,
-              targets: panel.targets?.map((target) => ({
-                ...target,
-                rawFrameContent: target.rawFrameContent?.replace(
-                  '[1609459200000, "A", 10]',
-                  '[1609459200000, "A", 110]'
-                ),
-              })),
-            }
-          : panel
-      ),
-    };
-    expect(JSON.stringify(refreshedDashboard)).toContain('[1609459200000, \\"A\\", 110]');
-    const refreshResponse = await request.post('/api/dashboards/db', {
-      data: { dashboard: refreshedDashboard, folderId: 0, overwrite: true },
-      timeout: 10_000,
-    });
-    expect(refreshResponse.ok()).toBe(true);
-
-    const reopened = await gotoPanelEditPage({ dashboard: { uid: created.uid }, id: '1' });
-    await reopened.getCustomOptions('AI Assist').expand();
-    await page.getByTestId('flint-ai-open-studio').click();
-    const reopenedStudio = page.getByTestId('flint-ai-studio');
-    const reopenedFrameworkTab = reopenedStudio.getByRole('tab', { name: 'UI Framework Spec' });
-    await reopenedFrameworkTab.click();
-    await expect(reopenedStudio.getByRole('complementary', { name: 'UI Framework Spec inspector' })).toContainText(
-      'Saved override applied'
-    );
-    const reopenedFrameworkPanel = reopenedStudio.getByRole('tabpanel', { name: 'UI Framework Spec' });
-    await expect(reopenedFrameworkPanel).toContainText('"trigger": "item"');
-    const reopenedFrameworkEditor = reopenedFrameworkPanel.locator('.monaco-editor[role="code"]');
-    await reopenedFrameworkEditor.locator('.view-lines').click();
-    await page.keyboard.press('Control+f');
-    await reopenedFrameworkPanel.getByRole('textbox', { name: 'Find' }).fill('110');
-    await expect(reopenedFrameworkEditor.locator('.view-lines')).toContainText('110');
-
-    const refreshedResponse = await request.get(`/api/dashboards/uid/${created.uid}`, { timeout: 10_000 });
-    expect(refreshedResponse.ok()).toBe(true);
-    const refreshedBody = (await refreshedResponse.json()) as typeof savedBody;
-    const staleDashboard = {
-      ...refreshedBody.dashboard,
-      panels: refreshedBody.dashboard.panels.map((panel) => {
-        if (panel.id !== 1) {
-          return panel;
-        }
-        const panelOverrides = panel.options.frameworkOverrides as {
-          echarts?: Record<string, unknown>;
-        };
-        return {
-          ...panel,
-          options: {
-            ...panel.options,
-            frameworkOverrides: {
-              ...panelOverrides,
-              echarts: { ...panelOverrides.echarts, compilerVersion: 'future-flint' },
-            },
-          },
-        };
-      }),
-    };
-    const staleResponse = await request.post('/api/dashboards/db', {
-      data: { dashboard: staleDashboard, folderId: 0, overwrite: true },
-      timeout: 10_000,
-    });
-    expect(staleResponse.ok()).toBe(true);
-
-    const stalePage = await gotoPanelEditPage({ dashboard: { uid: created.uid }, id: '1' });
-    const layoutWarning = page.getByRole('alert').filter({ hasText: 'Flint layout warning' });
-    await expect(layoutWarning).toContainText('compiler version changed');
-    await expect(page.getByTestId('flint-panel-chart').locator('canvas')).toBeVisible();
-    await stalePage.getCustomOptions('AI Assist').expand();
-    await page.getByTestId('flint-ai-open-studio').click();
-    const staleStudio = page.getByTestId('flint-ai-studio');
-    await staleStudio.getByRole('tab', { name: 'UI Framework Spec' }).click();
-    const staleInspector = staleStudio.getByRole('complementary', { name: 'UI Framework Spec inspector' });
-    await expect(staleInspector).toContainText('Stale override ignored');
-    await expect(staleInspector).not.toContainText('Saved override applied');
-    const staleDetails = staleInspector.getByRole('button', { name: /compiler version changed/ });
-    await staleDetails.hover();
-    await expect(page.getByRole('tooltip')).toContainText('compiler version changed');
-  } finally {
-    await request.delete(`/api/dashboards/uid/${created.uid}`, { timeout: 10_000 });
-  }
 });
 
 optionalAiTest(
@@ -968,7 +798,7 @@ optionalAiTest(
     const provider = await readProvisionedDataSource({ fileName: 'flint-ai.yml', name: 'Flint AI - Secondary' });
     const panelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
 
-    await panelEditPage.getCustomOptions('AI Assist').expand();
+    await panelEditPage.getCustomOptions('Chart settings').expand();
     await page.getByTestId('flint-ai-open-studio').click();
     const studio = page.getByTestId('flint-ai-studio');
     const chart = page.getByTestId('flint-ai-dialog-chart');
@@ -986,7 +816,7 @@ optionalAiTest(
     await expect(modelSelector).toHaveValue(selectedModelLabel);
 
     const reloadedPanelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
-    await reloadedPanelEditPage.getCustomOptions('AI Assist').expand();
+    await reloadedPanelEditPage.getCustomOptions('Chart settings').expand();
     await page.getByTestId('flint-ai-open-studio').click();
     await expect(page.getByTestId('flint-ai-studio').getByRole('combobox', { name: 'AI model' })).toHaveValue(
       selectedModelLabel
@@ -1033,7 +863,7 @@ optionalAiTest(
     const businessDataSource = await readProvisionedDataSource({ fileName: 'datasources.yml', name: 'TestData DB' });
     await expect(page.getByTestId('flint-panel-chart')).toHaveAttribute('data-chart-type', 'auto');
 
-    await panelEditPage.getCustomOptions('AI Assist').expand();
+    await panelEditPage.getCustomOptions('Chart settings').expand();
     await page.getByTestId('flint-ai-open-studio').click();
     const modelSelector = page.getByTestId('flint-ai-composer').getByRole('combobox', { name: 'AI model' });
     await expect(modelSelector).toBeVisible();
@@ -1094,7 +924,7 @@ optionalAiTest(
 
     const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
     const panelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
-    await panelEditPage.getCustomOptions('AI Assist').expand();
+    await panelEditPage.getCustomOptions('Chart settings').expand();
     await page.getByTestId('flint-ai-open-studio').click();
     const modelSelector = page.getByTestId('flint-ai-composer').getByRole('combobox', { name: 'AI model' });
     await expect(modelSelector).toBeVisible();
@@ -1136,7 +966,7 @@ test('AI Chat keeps proposal generation in the header and aligns Send with the m
 }) => {
   const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
-  await panelEditPage.getCustomOptions('AI Assist').expand();
+  await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
 
   const studio = page.getByTestId('flint-ai-studio');
@@ -1166,4 +996,135 @@ test('AI Chat keeps proposal generation in the header and aligns Send with the m
   await expect(page.getByRole('tooltip')).toContainText(
     'Generate a reviewable chart proposal from the sent conversation.'
   );
+});
+
+test('keeps compiled framework output read-only', async ({ gotoPanelEditPage, readProvisionedDashboard, page }) => {
+  const dashboard = await readProvisionedDashboard({ fileName: 'dashboard.json' });
+  const edit = await gotoPanelEditPage({ dashboard, id: '1' });
+  await edit.getCustomOptions('Chart settings').expand();
+  await page.getByTestId('flint-ai-open-studio').click();
+  const studio = page.getByTestId('flint-ai-studio');
+  await studio.getByRole('tab', { name: 'UI Framework Spec' }).click();
+  const panel = studio.getByRole('tabpanel', { name: 'UI Framework Spec' });
+  await expect(panel).toContainText('Read-only compiled output');
+  const editor = panel.locator('.monaco-editor[role="code"]');
+  await editor.locator('.view-lines').click();
+  await page.keyboard.press('Control+A');
+  await page.keyboard.insertText('THIS_MUST_NOT_REPLACE_COMPILED_OUTPUT');
+  await expect(editor).not.toContainText('THIS_MUST_NOT_REPLACE_COMPILED_OUTPUT');
+  await expect(studio.getByRole('button', { name: 'Reset override' })).toHaveCount(0);
+  await expect(page.getByTestId('flint-spec-draft-bar')).toHaveCount(0);
+});
+
+test('saves Flint source after editing fields and recompiles it after query refresh and reload', async ({
+  gotoPanelEditPage,
+  readProvisionedDashboard,
+  page,
+  request,
+}) => {
+  test.setTimeout(60_000);
+  const provisioned = await readProvisionedDashboard({ fileName: 'dashboard.json' });
+  const response = await request.get('/api/dashboards/uid/' + provisioned.uid);
+  expect(response.ok()).toBe(true);
+  const original = (await response.json()).dashboard;
+  const seed = original.panels.find((panel: { id: number }) => panel.id === 1);
+  const input = {
+    semantic_types: { Time: 'Date', Label: 'Category', Value: 'Quantity' },
+    chart_spec: {
+      chartType: 'Bar Chart',
+      encodings: { x: { field: 'Time' }, y: { field: 'Value', sortOrder: 'descending' } },
+      title: 'Preserved source title',
+    },
+  };
+  const created = await request.post('/api/dashboards/db', {
+    data: {
+      dashboard: {
+        ...original,
+        id: null,
+        uid: null,
+        title: 'Flint source persistence ' + Date.now(),
+        version: 0,
+        panels: [
+          {
+            ...seed,
+            options: {
+              renderBackend: 'echarts',
+              chartType: 'Bar Chart',
+              specJson: JSON.stringify(input),
+              xField: 'Time',
+              yField: 'Value',
+              colorField: '',
+              ai: { lastPrompt: '' },
+              frameworkOverrides: { echarts: { patch: [{ op: 'replace', path: '/tooltip/trigger', value: 'item' }] } },
+            },
+          },
+        ],
+      },
+      overwrite: false,
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const { uid } = await created.json();
+  try {
+    const edit = await gotoPanelEditPage({ dashboard: { uid }, id: '1' });
+    await edit.getCustomOptions('Chart settings').expand();
+    await page.getByTestId('flint-ai-open-studio').click();
+    const studio = page.getByTestId('flint-ai-studio');
+    await studio.getByRole('tab', { name: 'Chart Settings' }).click();
+    await studio.getByRole('combobox', { name: 'X field' }).click();
+    await page.getByRole('option', { name: /^Label(?: string)?$/ }).click();
+    await expect(page.getByTestId('flint-workbench-apply-draft')).toBeEnabled();
+    await page.getByTestId('flint-workbench-apply-draft').click();
+    await studio.getByRole('tab', { name: 'Flint Spec' }).click();
+    await expect(studio.getByRole('tabpanel', { name: 'Flint Spec' })).toContainText('Preserved source title');
+    await page
+      .getByRole('dialog', { name: 'Chart workbench' })
+      .getByRole('button', { name: 'Close', exact: true })
+      .click();
+    await edit.backToDashboard();
+    await page.getByRole('button', { name: /^(Save|Save dashboard)$/ }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+    await expect
+      .poll(async () => {
+        const saved = await request.get('/api/dashboards/uid/' + uid);
+        return (await saved.json()).dashboard.panels[0].options.flintInput?.chart_spec.encodings.x.field;
+      })
+      .toBe('Label');
+    const saved = (await (await request.get('/api/dashboards/uid/' + uid)).json()).dashboard;
+    const options = saved.panels[0].options;
+    expect(options.flintInput).toEqual({
+      ...input,
+      chart_spec: { ...input.chart_spec, encodings: { ...input.chart_spec.encodings, x: { field: 'Label' } } },
+    });
+    for (const key of ['frameworkOverrides', 'specJson', 'chartType', 'xField', 'yField']) {
+      expect(options).not.toHaveProperty(key);
+    }
+    expect(options.flintInput).not.toHaveProperty('data');
+    expect(options.flintInput.chart_spec).not.toHaveProperty('canvasSize');
+    for (const target of saved.panels[0].targets) {
+      if (target.rawFrameContent) {
+        target.rawFrameContent = target.rawFrameContent.replace(
+          '[1609459200000, "A", 10]',
+          '[1609459200000, "A", 110]'
+        );
+      }
+    }
+    expect(JSON.stringify(saved.panels[0].targets)).toContain('110');
+    expect((await request.post('/api/dashboards/db', { data: { dashboard: saved, overwrite: true } })).ok()).toBe(true);
+    const reopened = await gotoPanelEditPage({ dashboard: { uid }, id: '1' });
+    await reopened.getCustomOptions('Chart settings').expand();
+    await page.getByTestId('flint-ai-open-studio').click();
+    const nextStudio = page.getByTestId('flint-ai-studio');
+    await nextStudio.getByRole('tab', { name: 'UI Framework Spec' }).click();
+    const compiled = nextStudio.getByRole('tabpanel', { name: 'UI Framework Spec' });
+    const compiledEditor = compiled.locator('.monaco-editor[role="code"]');
+    await compiledEditor.locator('.view-lines').click();
+    await page.keyboard.press('Control+f');
+    await compiled.getByRole('textbox', { name: 'Find' }).fill('110');
+    await expect(compiledEditor.locator('.view-lines')).toContainText('110');
+    const after = (await (await request.get('/api/dashboards/uid/' + uid)).json()).dashboard.panels[0].options;
+    expect(after.flintInput).toEqual(options.flintInput);
+  } finally {
+    await request.delete('/api/dashboards/uid/' + uid);
+  }
 });

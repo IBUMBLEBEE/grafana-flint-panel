@@ -147,46 +147,6 @@ describe('validatePendingViz', () => {
       )
     ).toThrow(/requires size encodings/);
   });
-
-  it('rejects persisted Framework overrides that target runtime query data', () => {
-    expect(() =>
-      validatePendingViz(
-        {
-          ...valid,
-          frameworkOverrides: {
-            chartjs: {
-              version: 1,
-              backend: 'chartjs',
-              compilerVersion: '0.5.1',
-              sourceFingerprint: 'source-a',
-              patch: [{ op: 'replace', path: '/data/datasets/0/data', value: [9999] }],
-            },
-          },
-        },
-        ['region', 'revenue']
-      )
-    ).toThrow(/query data/);
-  });
-
-  it('rejects persisted Framework overrides that remove runtime series structure', () => {
-    expect(() =>
-      validatePendingViz(
-        {
-          ...valid,
-          frameworkOverrides: {
-            echarts: {
-              version: 1,
-              backend: 'echarts',
-              compilerVersion: '0.5.1',
-              sourceFingerprint: 'source-a',
-              patch: [{ op: 'remove', path: '/series' }],
-            },
-          },
-        },
-        ['region', 'revenue']
-      )
-    ).toThrow(/runtime-owned structure/);
-  });
 });
 
 describe('validateFlintOptions', () => {
