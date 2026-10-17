@@ -1,7 +1,22 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { ChartJsDriver, EChartsDriver, PlotlyDriver, VegaLiteDriver } from './helpers/chartBackend';
 
 const optionalAiTest = process.env.FLINT_AI_E2E === 'true' ? test : test.skip;
+
+// CI has no AI datasource, so the workbench starts with chat collapsed.
+// Tests that inspect the split layout must open it through the same user control.
+async function showAiChat(page: Page): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: 'Chart workbench' });
+  await expect(dialog).toBeVisible();
+  const showChat = dialog.getByRole('button', { name: 'Show AI Chat', exact: true });
+  if (await showChat.isVisible()) {
+    await showChat.click();
+  }
+  await expect(
+    page.getByTestId('flint-ai-studio').getByRole('region', { name: 'AI chat and proposal controls' })
+  ).toBeVisible();
+}
 
 test('should display "No data" in case panel data is empty', async ({
   gotoPanelEditPage,
@@ -173,6 +188,7 @@ test('keeps Hover and Legend active for every backend in the Studio preview', as
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '6' });
   await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
+  await showAiChat(page);
   const studio = page.getByTestId('flint-ai-studio');
   const chart = page.getByTestId('flint-ai-dialog-chart');
 
@@ -302,6 +318,7 @@ test('keeps Studio actions and keyboard explanations accessible at supported vie
 
   await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
+  await showAiChat(page);
   const studio = page.getByTestId('flint-ai-studio');
   const dialog = page.getByRole('dialog', { name: 'Chart workbench' });
   const previewPane = studio.getByRole('region', { name: 'Live preview' });
@@ -579,6 +596,7 @@ test('manually edits Flint Spec, applies, and undoes without selecting an AI pro
   await panelEditPage.getCustomOptions('Chart settings').expand();
   await expect(page.getByTestId('flint-ai-current-chart')).toContainText('Current chart: Auto · Apache ECharts');
   await page.getByTestId('flint-ai-open-studio').click();
+  await showAiChat(page);
 
   const studio = page.getByTestId('flint-ai-studio');
   const dialog = page.getByRole('dialog', { name: 'Chart workbench' });
@@ -968,6 +986,7 @@ test('AI Chat keeps proposal generation in the header and aligns Send with the m
   const panelEditPage = await gotoPanelEditPage({ dashboard, id: '1' });
   await panelEditPage.getCustomOptions('Chart settings').expand();
   await page.getByTestId('flint-ai-open-studio').click();
+  await showAiChat(page);
 
   const studio = page.getByTestId('flint-ai-studio');
   const chatPane = studio.getByRole('region', { name: 'AI chat and proposal controls' });
