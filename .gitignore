@@ -47,6 +47,7 @@ ci/
 
 .eslintcache
 *.zip
+*.zip.sha1
 
 # Local tool caches and indexes
 .cache/

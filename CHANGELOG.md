@@ -1,25 +1,37 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-10-17
 
-- Show manual Apply confirmations in Chart workbench without adding AI Chat messages; preserve history recording and keep AI proposal confirmations in chat. Unify notification titles as Chart workbench.
+### Features
 
-- Add official Flint theme presets for Vega-Lite with preview, Apply, persistence and Default reset. Other backends explicitly report unsupported themes and retain the selected preset without applying it.
+- Add a provider-free Chart settings entry and Chart workbench with backend-aware field bindings, multiple numeric values, chart-specific options, Tooltip and reset controls.
+- Add official Flint theme presets for Vega-Lite, including preview, Apply, persistence and Default reset. Other backends retain the selection and report unsupported themes.
+- Add per-series colors for supported multi-measure grouped bars, stacked bars and lines across the four rendering backends.
+- Plan AI changes from the conversation and current chart, with clarification, constrained refinement and explicit redesign intent.
+- Add chart application history and exportable, redacted AI diagnostics.
 
-- Add a provider-free Chart settings entry with backend-aware field mappings, multiple measure selection, chart-specific options, Tooltip and per-option reset.
-- Preserve compatible bindings and properties across chart switches, including returning to Auto; expose inferred fields and missing-field guidance.
-- Preserve settings omitted by AI proposals and generate against the current preview draft.
+### Improvements
 
-- Normalize AI proposals to canonical Flint source through generation, repair, preview and Apply; keep legacy scalar Provider response compatibility at the adapter boundary.
-- Add explicit Create and Refine modes. Refine permits only titles, subtitles and field display names, enforces the same locks during repair, and rejects stale source baselines before Apply.
-- Cover source preservation and constrained refinement with deterministic mock Provider tests without requiring live LLM credentials.
+- Persist versioned, data-free Flint source as the canonical chart state; recompile with current Grafana query rows and host dimensions.
+- Preserve compatible bindings and settings across chart switches, Auto inference, manual edits and AI proposals. Generate against the current preview draft.
+- Normalize Generate and Repair responses to canonical source, enforce refinement locks and reject stale source baselines before Apply.
+- Show manual Apply confirmations in Chart workbench while keeping AI proposal confirmations in chat.
+- Add public Grafana MCP templates, a persisted-options schema and source validation with field-level errors.
 
-- Align public Grafana MCP templates and documentation with the canonical Flint source contract; verify schema, fixture fields and links in CI.
-- Make the HTTP dashboard smoke test use a unique test-owned dashboard and clean it up without overwriting existing dashboards.
-- Persist versioned, data-free Flint source as the single chart state; recompile with current Grafana query rows and host dimensions.
-- Preserve unrelated semantic configuration when editing chart settings, and retain dynamic Auto inference.
-- Remove framework overrides and make UI Framework Spec read-only. Existing overrides are removed by migration; custom backend styling is no longer replayed.
-- Migrate legacy scalar options and Flint Spec JSON, including drafts and Undo state. Unconvertible legacy content is retained for recovery and blocked from rendering.
+### Migration and compatibility
+
+- Remove framework overrides and make UI Framework Spec read-only. Existing overrides are removed by migration and custom backend styling is no longer replayed.
+- Migrate legacy scalar options and Flint Spec JSON, including drafts and Undo state. Unconvertible content is retained for recovery and blocked from rendering.
+- The plugin remains an experimental POC. Review saved charts after upgrading; back up dashboards before migration.
+
+### Validation and security
+
+- Check serialized Generate and Repair payloads against the real AI datasource decoders and a versioned request schema.
+- Cover manual settings, themes, colors, history, source preservation and AI proposal safeguards with deterministic tests.
+- Make the HTTP dashboard smoke test use a unique test-owned dashboard and clean it up afterward.
+- Refresh the Cursor authoring guide, protect local credential files from accidental commits and fix the bundled README logo URL.
+
+**Full changelog**: https://github.com/IBUMBLEBEE/grafana-flint-panel/compare/v0.3.1...v0.4.0
 
 ## 0.3.1 - 2026-09-24
 
