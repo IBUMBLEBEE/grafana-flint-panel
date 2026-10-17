@@ -18,6 +18,10 @@
 - Show manual Apply confirmations in Chart workbench while keeping AI proposal confirmations in chat.
 - Add public Grafana MCP templates, a persisted-options schema and source validation with field-level errors.
 
+### Bug fixes
+
+- Restore Auto chart history correctly when Grafana transports deleted bindings as undefined fields; retain the exact source, palette and confirmed Apply notification.
+
 ### Migration and compatibility
 
 - Remove framework overrides and make UI Framework Spec read-only. Existing overrides are removed by migration and custom backend styling is no longer replayed.

@@ -1,5 +1,6 @@
 import { toChartState } from '../flint/chartState';
 import { applyPendingViz } from '../flint/applyPendingViz';
+import { panelOptionsUpdate } from '../flint/panelOptionsUpdate';
 import {
   chartHistoryContext,
   chartHistoryKey,
@@ -139,3 +140,18 @@ it.each(['chat', 'workbench'] as const)(
     expect(loaded.at(-1)).toMatchObject({ notificationTarget, confirmed: false, snapshot: after });
   }
 );
+
+it('restores Auto source after Grafana transports removals as undefined fields', () => {
+  const history = recordChartApplication([], before, after, context, {
+    before: 'Grouped Bar Chart',
+    after: 'Line Chart',
+  });
+  const draft = prepareChartRestore(history, history[0].id, after, context);
+  const current = { ...after, ai: { lastPrompt: '' } };
+  const update = panelOptionsUpdate(current, applyPendingViz(current, draft));
+  const transported = JSON.stringify(update);
+
+  expect(toChartState(update)).toEqual(before);
+  expect(JSON.stringify(update)).toBe(transported);
+  expect(toChartState(JSON.parse(transported))).toEqual(before);
+});

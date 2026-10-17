@@ -48,7 +48,23 @@ function assertNoRuntimeData(value: unknown, fieldNames = false, root = true): v
   }
 }
 
+/** Grafana can retain undefined deletion markers in nested option updates. */
+function stripUndefinedFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripUndefinedFields);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, child]) => child !== undefined)
+      .map(([key, child]) => [key, stripUndefinedFields(child)])
+  );
+}
+
 export function sourceInput(input: FlintInput): FlintInput {
+  input = stripUndefinedFields(input) as FlintInput;
   assertNoRuntimeData(input);
   validateSourceShape(input);
   validateThemePreset(input.theme_spec);
